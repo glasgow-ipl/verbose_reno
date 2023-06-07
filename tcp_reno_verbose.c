@@ -21,9 +21,6 @@ void tcp_vreno_in_ack_event(struct sock *sk, u32 flags)
 	if(sport == 80) { // HTTP server doing
 		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u\n",
 				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
-//		struct vrenotcp *ca = inet_csk_ca(sk);
-//		printk(KERN_INFO "Saved cwnd: %u, current cwnd: %u\n", ca->saved_snd_cwnd, tp->snd_cwnd);
-//		ca->saved_snd_cwnd = tp->snd_cwnd;
 	}
 }
 
@@ -42,20 +39,6 @@ void tcp_vreno_init(struct sock *sk) {
 }
 
 
-/*
-void clamp_init(struct sock *sk)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-	tp->snd_cwnd_clamp=42;
-}
-
-
-void vreno_set_state(struct sock *sk, u8 new_state)
-{
-	printk(KERN_INFO "Entering new state: %u", new_state);
-
-}
-*/
 
 void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 {
@@ -71,14 +54,6 @@ void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 }
 
 
-/*
-u32 vreno_undo_cwnd(struct sock *sk)
-{
-	u32 new_cwnd = tcp_reno_undo_cwnd(sk);
-	printk(KERN_INFO "Loss occurred, new CWND value is: %u", new_cwnd);
-	return new_cwnd;
-}
-*/
 
 
 void tcp_trace_state(struct sock* sk, u8 new_state)
