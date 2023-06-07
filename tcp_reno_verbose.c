@@ -64,7 +64,7 @@ void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 	if(ev == CA_EVENT_CWND_RESTART)
 	{
 		struct vrenotcp *ca = inet_csk_ca(sk);
-		ca->saved_reset_cnt = ca->saved_reset_cnt++;
+		ca->saved_reset_cnt++;
 		printk(KERN_INFO "Reset count: %u\n", ca->saved_reset_cnt);
 	}
 
