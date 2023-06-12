@@ -4,7 +4,6 @@
 
 
 struct vrenotcp {
-	u32 saved_snd_cwnd;
 	u32 saved_reset_cnt;
 
 };
@@ -24,20 +23,21 @@ void tcp_vreno_in_ack_event(struct sock *sk, u32 flags)
 	}
 }
 
-static inline void vreno_reset(struct vrenotcp *ca) {
 
-        ca->saved_snd_cwnd = 0;
+static inline void vreno_reset(struct vrenotcp *ca)
+{
+
         ca->saved_reset_cnt = 0;
 }
 
 
-void tcp_vreno_init(struct sock *sk) {
+void tcp_vreno_init(struct sock *sk) 
+{
 
 	struct vrenotcp *ca = inet_csk_ca(sk);
 
 	vreno_reset(ca);
 }
-
 
 
 void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
@@ -52,8 +52,6 @@ void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 	}
 
 }
-
-
 
 
 void tcp_trace_state(struct sock* sk, u8 new_state)
