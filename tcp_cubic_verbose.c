@@ -233,7 +233,7 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 	ca->ack_cnt += acked;	/* count the number of ACKed packets */
 
 	if (ca->last_cwnd == cwnd &&
-	    (s32)(tcp_jiffies32 - ca->last_time) <= HZ / 32)
+		(s32)(tcp_jiffies32 - ca->last_time) <= HZ / 32)
 		return;
 
 	/* The CUBIC function can update ca->cnt at most once per jiffy.
@@ -259,7 +259,7 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 			 * (wmax-cwnd) * (srtt>>3 / HZ) / c * 2^(3*bictcp_HZ)
 			 */
 			ca->bic_K = cubic_root(cube_factor
-					       * (ca->last_max_cwnd - cwnd));
+						   * (ca->last_max_cwnd - cwnd));
 			ca->bic_origin_point = ca->last_max_cwnd;
 		}
 	}
@@ -396,10 +396,10 @@ static void hystart_update(struct sock *sk, u32 delay)
 			if ((s32)(now - ca->round_start) > ca->delay_min >> 4) {
 				ca->found |= HYSTART_ACK_TRAIN;
 				NET_INC_STATS(sock_net(sk),
-					      LINUX_MIB_TCPHYSTARTTRAINDETECT);
+						  LINUX_MIB_TCPHYSTARTTRAINDETECT);
 				NET_ADD_STATS(sock_net(sk),
-					      LINUX_MIB_TCPHYSTARTTRAINCWND,
-					      tp->snd_cwnd);
+						  LINUX_MIB_TCPHYSTARTTRAINCWND,
+						  tp->snd_cwnd);
 				tp->snd_ssthresh = tp->snd_cwnd;
 			}
 		}
@@ -414,13 +414,13 @@ static void hystart_update(struct sock *sk, u32 delay)
 			ca->sample_cnt++;
 		} else {
 			if (ca->curr_rtt > ca->delay_min +
-			    HYSTART_DELAY_THRESH(ca->delay_min >> 3)) {
+				HYSTART_DELAY_THRESH(ca->delay_min >> 3)) {
 				ca->found |= HYSTART_DELAY;
 				NET_INC_STATS(sock_net(sk),
-					      LINUX_MIB_TCPHYSTARTDELAYDETECT);
+						  LINUX_MIB_TCPHYSTARTDELAYDETECT);
 				NET_ADD_STATS(sock_net(sk),
-					      LINUX_MIB_TCPHYSTARTDELAYCWND,
-					      tp->snd_cwnd);
+						  LINUX_MIB_TCPHYSTARTDELAYCWND,
+						  tp->snd_cwnd);
 				tp->snd_ssthresh = tp->snd_cwnd;
 			}
 		}
@@ -455,7 +455,7 @@ static void bictcp_acked(struct sock *sk, const struct ack_sample *sample)
 
 	/* hystart triggers when cwnd is larger than some threshold */
 	if (hystart && tcp_in_slow_start(tp) &&
-	    tp->snd_cwnd >= hystart_low_window)
+		tp->snd_cwnd >= hystart_low_window)
 		hystart_update(sk, delay);
 }
 
@@ -487,7 +487,7 @@ void vcubic_in_ack_event(struct sock *sk, u32 flags)
 
 static inline void vcubic_reset(struct bictcp *vc) {
 		printk(KERN_INFO "Reset occurred");
-        vc->saved_snd_cwnd = 0;
+		vc->saved_snd_cwnd = 0;
 }
 
 void vcubic_init(struct sock *sk) {
