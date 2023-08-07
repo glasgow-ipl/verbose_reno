@@ -504,13 +504,13 @@ void vcubic_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 	// printk(KERN_INFO "Congestion window event occurred: %u", ev);
 	if(ev == CA_EVENT_CWND_RESTART)
 	{
-		struct bictcp *vc = inet_csk_ca(sk);
 		const struct tcp_sock *tp = tcp_sk(sk);
 		const struct inet_sock *isock = inet_sk(sk);
 
 		uint16_t sport = ntohs(isock->inet_sport);
 		uint16_t dport = ntohs(isock->inet_dport);
-		printk(KERN_INFO "CWND RESET. sourcep: %u dstp: %u\n", sport, dport);
+		printk(KERN_INFO "CWND RESET. Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+			 sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 	}
 
 	bictcp_cwnd_event(sk, ev);

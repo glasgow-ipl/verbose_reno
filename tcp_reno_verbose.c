@@ -57,9 +57,17 @@ void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 	printk(KERN_INFO "Congestion window event occurred: %u", ev);
 	if(ev == CA_EVENT_CWND_RESTART)
 	{
+		const struct inet_sock *isock = inet_sk(sk);
+		const struct tcp_sock *tp = tcp_sk(sk);
 		struct vrenotcp *ca = inet_csk_ca(sk);
+
+		uint16_t sport = ntohs(isock->inet_sport);
+		uint16_t dport = ntohs(isock->inet_dport);
+
 		ca->saved_reset_cnt++;
-		printk(KERN_INFO "Reset count: %u\n", ca->saved_reset_cnt);
+
+		printk(KERN_INFO "CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 	}
 
 }
