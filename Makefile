@@ -1,5 +1,5 @@
 #obj-m += tcp_reno_verbose.o tcp_cubic_verbose.o tcp_bbr_verbose.o
-obj-m += tcp_reno_verbose.o tcp_cubic_verbose.o tcp_cubic_ss.o
+obj-m += tcp_reno_verbose.o tcp_cubic_verbose.o tcp_cubic_ss.o tcp_aacc.o tcp_const.o
 
 IDIR= /lib/modules/$(shell uname -r)/kernel/net/ipv4/
 KDIR := /lib/modules/$(shell uname -r)/build
@@ -25,6 +25,12 @@ install_aacc:
 	depmod
 	modprobe tcp_aacc
 	sysctl -w net.ipv4.tcp_allowed_congestion_control="(shell sysctl net.ipv4.tcp_allowed_congestion_control -n) aacc"
+
+install_const:
+	install -v -m 644 tcp_const.ko ${IDIR}
+	depmod
+	modprobe tcp_const
+	sysctl -w net.ipv4.tcp_allowed_congestion_control="(shell sysctl net.ipv4.tcp_allowed_congestion_control -n) const"
 
 install_vcubic:
 	install -v -m 644 tcp_cubic_verbose.ko $(IDIR)
