@@ -18,6 +18,7 @@ struct vrenotcp {
 	u32 saved_reset_cnt;
 	u32 max_cwnd;
 	u32 prev_rtt;
+	bool enabled;
 
 };
 
@@ -58,6 +59,7 @@ void tcp_aacc_init(struct sock *sk)
 		tcp_sk(sk)->snd_ssthresh = initial_ssthresh;
 	}
 
+	ca->enabled = false;
 	tcp_aacc_reset(ca);
 }
 
@@ -77,6 +79,7 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		ca->saved_reset_cnt++;
 
+		ca->enabled = true;
 		printk(KERN_INFO "CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 		
@@ -161,9 +164,12 @@ void tcp_const_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	// Let Reno handle cwnd calculation
 	tcp_reno_cong_avoid(sk, ack, acked);
 
-	// override the cwnd
-	 struct tcp_sock *tp = tcp_sk(sk);
-	 tp->snd_cwnd = CONST_WINDOW;
+	struct vrenotcp *ca = inet_csk_ca(sk);
+	if (ca->enabled) {
+		// override the cwnd if we had an ack reset on the connection
+		struct tcp_sock *tp = tcp_sk(sk);
+		tp->snd_cwnd = CONST_WINDOW;
+	}
 
 }
 
@@ -186,14 +192,14 @@ struct tcp_congestion_ops tcp_reno_verbose = {
 
 static int __init tcp_const_register(void)
 {
-	printk(KERN_INFO "TCP AACC Going Up");
+	printk(KERN_INFO "TCP Const Going Up");
 	return tcp_register_congestion_control(&tcp_reno_verbose);
 }
 
 
 static void __exit tcp_const_unregister(void)
 {
-	printk(KERN_INFO "TCP AACC Going Down");
+	printk(KERN_INFO "TCP Const Going Down");
 	tcp_unregister_congestion_control(&tcp_reno_verbose);
 }
 
