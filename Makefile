@@ -20,6 +20,12 @@ install_vreno_ss_init:
 	modprobe tcp_reno_verbose initial_ssthresh=$(initial_ssthresh)
 	sysctl -w net.ipv4.tcp_allowed_congestion_control="$(shell sysctl net.ipv4.tcp_allowed_congestion_control -n) reno_verbose"
 
+install_aacc:
+	install -v -m 644 tcp_aacc.ko ${IDIR}
+	depmod
+	modprobe tcp_aacc
+	sysctl -w net.ipv4.tcp_allowed_congestion_control="(shell sysctl net.ipv4.tcp_allowed_congestion_control -n) aacc"
+
 install_vcubic:
 	install -v -m 644 tcp_cubic_verbose.ko $(IDIR)
 	depmod
