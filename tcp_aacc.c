@@ -11,12 +11,21 @@
 static int initial_ssthresh __read_mostly;
 module_param(initial_ssthresh, int, 0644);
 MODULE_PARM_DESC(initial_ssthresh, "initial value of slow start threshold");
+enum AACC_state {
+	RESTARTING_AFTER_IDLE=0,
+	CWND_GROWTH_SUSPENSION,
+	SAFE_RETREAT,
+	NORMAL
+};
 
 struct vrenotcp {
 	u32 saved_reset_cnt;
 	u32 max_cwnd;
 	u32 prev_rtt;
-
+	u8 should_resume;
+	u8 cwnd_growth_suspension_rounds;
+	u32 cwnd_suspension_start_time;
+	enum AACC_state aacc_state;
 };
 
 
