@@ -73,7 +73,10 @@ void tcp_aacc_init(struct sock *sk)
 {
 
 	struct vrenotcp *ca = inet_csk_ca(sk);
+	ca->should_resume = 0;
 	ca->cwnd_suspension_start_time = 0;
+
+	ca->aacc_state = NORMAL;
 
 	if(initial_ssthresh) 
 	{
@@ -104,8 +107,11 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		printk(KERN_INFO "CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
+
+		ca->aacc_state = RESTARTING_AFTER_IDLE;
 		
 		ca->prev_rtt = tp->srtt_us;
+		ca->should_resume = 1;
 	}
 
 }
