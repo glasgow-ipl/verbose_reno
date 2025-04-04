@@ -177,6 +177,22 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 }
 
 
+// Called when we enter fast retransmit:
+// returns: value that cwnd is reduced to after loss
+u32 tcp_reno_ssthresh(struct sock *sk)
+{
+	return max(tcp_snd_cwnd(tp) >> 1U, 2U);
+}
+
+
+
+u32 tcp_reno_undo_cwnd(struct sock *sk)
+{
+	const struct tcp_sock *tp = tcp_sk(sk);
+
+	return max(tcp_snd_cwnd(tp), tp->prior_cwnd);
+}
+
 struct tcp_congestion_ops tcp_reno_verbose = {
 	.init		= tcp_aacc_init,
 	.flags		= TCP_CONG_NON_RESTRICTED,
