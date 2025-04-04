@@ -26,6 +26,8 @@ enum AACC_state {
 
 static inline void tcp_snd_cwnd_set(struct tcp_sock *tp, u32 val)
 {
+	printk(KERN_INFO "My set %u", val);
+	printk(KERN_INFO "cwnd %u, packets out %u, retrans out %u, cwnd used %u, cwnd usage seq %u", tp->snd_cwnd, tp->packets_out, tp->retrans_out, tp->snd_cwnd_used, tp->max_packets_seq);
 
 	WARN_ON_ONCE((int)val <= 0);
 	tp->snd_cwnd = val;
