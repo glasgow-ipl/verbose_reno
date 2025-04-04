@@ -62,7 +62,6 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 
 static inline void tcp_aacc_reset(struct vrenotcp *ca)
 {
-
 		ca->saved_reset_cnt = 0;
 		ca->max_cwnd = 0;
 		ca->prev_rtt = 0;
@@ -90,6 +89,8 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 {
 
 	printk(KERN_INFO "Congestion window event occurred: %u", ev);
+
+	// CA_EVENT_COMPLETE_CWR is emitted when the lost packet (3 dup acks for example) is ACK'd and CC can continue to normal  
 	if(ev == CA_EVENT_CWND_RESTART)
 	{
 		const struct inet_sock *isock = inet_sk(sk);
@@ -116,6 +117,9 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 	// It might be beneficial to disallow use of max_cwnd if it cwnd was reset during recovery, i.e., _after_ a loss but before reaching the prior_cwnd
 	switch(new_state)
 	{
+		case TCP_CA_Open:
+			printk(KERN_INFO "Trace event: All normal (Recovery completed)");
+			break;
 		case TCP_CA_CWR:
 			printk(KERN_INFO "Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
 			break;
@@ -153,6 +157,11 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 // 	tcp_snd_cwnd_set(tp, min(tcp_snd_cwnd(tp), tp->snd_cwnd_clamp));
 // }
 
+static inline u32 tcp_snd_cwnd(const struct tcp_sock *tp)
+{
+	return tp->snd_cwnd;
+}
+
 /* Slow start is used when congestion window is no greater than the slow start
  * threshold. We base on RFC2581 and also handle stretch ACKs properly.
  * We do not implement RFC3465 Appropriate Byte Counting (ABC) per se but
@@ -162,9 +171,40 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
  * ABC caps N to 2. Slow start exits when cwnd grows over ssthresh and
  * returns the leftover acks to adjust cwnd in congestion avoidance mode.
  */
-// u32 tcp_slow_start(struct tcp_sock *tp, u32 acked)
-// {
-// 	u32 cwnd = min(tcp_snd_cwnd(tp) + acked, tp->snd_ssthresh);
+u32 tcp_slow_start(struct tcp_sock *tp, u32 acked)
+{
+	printk(KERN_INFO "Slow Start CCA");
+	u32 cwnd = min(tcp_snd_cwnd(tp) + acked, tp->snd_ssthresh);
+
+	acked -= cwnd - tcp_snd_cwnd(tp);
+	tcp_snd_cwnd_set(tp, min(cwnd, tp->snd_cwnd_clamp));
+
+	return acked;
+}
+
+
+/* In theory this is tp->snd_cwnd += 1 / tp->snd_cwnd (or alternative w),
+ * for every packet that was ACKed.
+ */
+void tcp_cong_avoid_ai(struct tcp_sock *tp, u32 w, u32 acked)
+{
+	printk(KERN_INFO "cong avoid called");
+
+	/* If credits accumulated at a higher w, apply them gently now. */
+	if (tp->snd_cwnd_cnt >= w) {
+		tp->snd_cwnd_cnt = 0;
+		tcp_snd_cwnd_set(tp, tcp_snd_cwnd(tp) + 1);
+	}
+
+	tp->snd_cwnd_cnt += acked;
+	if (tp->snd_cwnd_cnt >= w) {
+		u32 delta = tp->snd_cwnd_cnt / w;
+
+		tp->snd_cwnd_cnt -= delta * w;
+		tcp_snd_cwnd_set(tp, tcp_snd_cwnd(tp) + delta);
+	}
+	tcp_snd_cwnd_set(tp, min(tcp_snd_cwnd(tp), tp->snd_cwnd_clamp));
+}
 
 /*
  * TCP Reno congestion control
