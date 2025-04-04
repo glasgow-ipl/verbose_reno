@@ -131,6 +131,19 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 			break;
 		case TCP_CA_Recovery:
 			printk(KERN_INFO "Trace event: Loss. Entering fast retransmit state (dup acks)\n");
+			// When we lose a packet due to dup acks, we are sending too fast, scale back the max_cwnd by applying CUBIC BETA 717/1024
+			struct vrenotcp *ca = inet_csk_ca(sk);
+			u32 old_window = ca->max_cwnd;
+			ca->max_cwnd = ca->max_cwnd * 717/1024;
+			printk(KERN_INFO "Dup ACK loss. Reducing cwnd from %u to %u", old_window, ca->max_cwnd);
+
+			// If we lose a packet while validating the jump then the selected jump was too high!
+			// Forget the current max cwnd value
+			if (ca->aacc_state == CWND_GROWTH_SUSPENSION) 
+			{
+				ca->max_cwnd = TCP_INIT_CWND;
+			}
+
 			break;
 		case TCP_CA_Loss:
 			printk(KERN_INFO "Trace event: Loss. Entering loss recovery (Timeout)\n");
