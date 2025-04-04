@@ -66,6 +66,7 @@ static inline void tcp_aacc_reset(struct vrenotcp *ca)
 		ca->saved_reset_cnt = 0;
 		ca->max_cwnd = 0;
 		ca->prev_rtt = 0;
+		ca->cwnd_growth_suspension_rounds = 0;
 }
 
 
@@ -73,7 +74,7 @@ void tcp_aacc_init(struct sock *sk)
 {
 
 	struct vrenotcp *ca = inet_csk_ca(sk);
-
+	ca->cwnd_suspension_start_time = 0;
 
 	if(initial_ssthresh) 
 	{
@@ -165,11 +166,71 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 // {
 // 	u32 cwnd = min(tcp_snd_cwnd(tp) + acked, tp->snd_ssthresh);
 
-// 	acked -= cwnd - tcp_snd_cwnd(tp);
-// 	tcp_snd_cwnd_set(tp, min(cwnd, tp->snd_cwnd_clamp));
+/*
+ * TCP Reno congestion control
+ * This is special case used for fallback as well.
+ */
+/* This is Jacobson's slow start and congestion avoidance.
+ * SIGCOMM '88, p. 328.
+ */
+void tcp_reno_cong_avoid(struct sock *sk, u32 ack, u32 acked)
+{
+	printk(KERN_INFO "Reno CCA");
+	struct tcp_sock *tp = tcp_sk(sk);
+	
+	// Prevent Reno CCA from modifying cwnd if we are in the cwnd growth suspension phase
+	struct vrenotcp *ca = inet_csk_ca(sk);
+	if (ca->cwnd_suspension_start_time && ca->cwnd_growth_suspension_rounds)
+	{
+		u32 time_now = tcp_jiffies32;
+		u32 smoothed_rtt_us = tp->srtt_us >> 3;
 
-// 	return acked;
-// }
+		u32 time_since_reset_jiffies = time_now - ca->cwnd_suspension_start_time;
+		 
+		u32 time_since_reset_us = (time_since_reset_jiffies*1000000) / HZ;
+
+		u32 cwnd_growth_cooldown = smoothed_rtt_us * ca->cwnd_growth_suspension_rounds;
+		u32 reset_rtts = cwnd_growth_cooldown / ((tp->srtt_us >> 3) / 1000);
+		printk(KERN_INFO "Time since reset us %u. cwnd growth cooldown %u, RTTs %u (%u/%u)", time_since_reset_us, cwnd_growth_cooldown, reset_rtts, time_since_reset_us / 1000, reset_rtts);
+
+		if (time_since_reset_us < cwnd_growth_cooldown)
+		{
+			return;
+		}
+
+		ca->aacc_state = NORMAL;
+		printk(KERN_INFO "Entering Reno CCA");
+	}
+
+
+	if (!tcp_is_cwnd_limited(sk))
+		return;
+
+	/* In "safe" area, increase. */
+	if (tcp_in_slow_start(tp)) {
+		printk(KERN_INFO "Calling SS");
+		acked = tcp_slow_start(tp, acked);
+		if (!acked)
+			return;
+	}
+	/* In dangerous area, increase slowly. */
+	tcp_cong_avoid_ai(tp, tcp_snd_cwnd(tp), acked);
+}
+
+
+unsigned int pick_cwnd_jump_value(int max_cwnd) {
+	int selected_value = 0;
+	int i=0;
+	for (i=0; i< sizeof(application_hints) / sizeof(application_hints[0]); i++)
+	{
+		if (application_hints[i] < max_cwnd)
+		{
+			selected_value = application_hints[i];
+		}
+	}
+
+	return selected_value;
+}
 
 /*
  * TCP Reno congestion control
@@ -180,21 +241,42 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
  */
 void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
+	printk(KERN_INFO "AACC CA CALLED");
 	struct vrenotcp *ca = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 
+	if (ca->cwnd_suspension_start_time) 
+	{
+		u32 time_since_reset = tcp_jiffies32 - ca->cwnd_suspension_start_time;
+		printk(KERN_INFO "Time of reset %u Time since reset %u. Time (ms) %u", ca->cwnd_suspension_start_time, time_since_reset, (time_since_reset*1000) / HZ);
+		printk(KERN_INFO "Prev RTT %u Prev RTT (ms) %u", (tp->srtt_us >> 3), (tp->srtt_us*1000) / HZ);
+	}
+
 	if (ca->prev_rtt)
 	{
-		printk(KERN_INFO "Starting Retransmission, saved RTT us %u MAX_CWND %u", ca->prev_rtt, ca->max_cwnd);
+		unsigned int selected_cwnd = pick_cwnd_jump_value(ca->max_cwnd);
+		printk(KERN_INFO "Restarting after idle, saved RTT us %u MAX_CWND %u, selected value: %u", ca->prev_rtt, ca->max_cwnd, selected_cwnd);
 		ca->prev_rtt = 0;
 		ca->max_cwnd = 0;
+
+		// We are pesimistically adding one to the suspension rounds as the computation below returns the whole part of the number
+		u8 cwnd_growth_suspension_rounds = ilog2(selected_cwnd / tp->snd_cwnd) + 1;
+		ca->cwnd_growth_suspension_rounds = cwnd_growth_suspension_rounds;
+		ca->cwnd_suspension_start_time = tcp_jiffies32;
+
+		printk(KERN_INFO "Setting cwnd to %u. Waiting for %u RTTs before increasing cwnd. Setting reset time to %u", selected_cwnd, cwnd_growth_suspension_rounds, 
+			ca->cwnd_suspension_start_time);
+		
+		// Set the congestion window based on the selected cwnd value
+		tcp_snd_cwnd_set(tp, selected_cwnd);
+		ca->aacc_state = CWND_GROWTH_SUSPENSION;
 	}
 
 	// Let Reno handle cwnd calculation
 	tcp_reno_cong_avoid(sk, ack, acked);
 
-
-	if (ca->max_cwnd < tp->snd_cwnd)
+	// Only store max_cwnd value when we are not in in SS
+	if (tp->snd_cwnd > tp->snd_ssthresh && ca->max_cwnd < tp->snd_cwnd)
 	{
 		ca->max_cwnd = tp->snd_cwnd;
 	}
