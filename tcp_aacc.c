@@ -23,6 +23,14 @@ enum AACC_state {
 	NORMAL
 };
 
+
+static inline void tcp_snd_cwnd_set(struct tcp_sock *tp, u32 val)
+{
+
+	WARN_ON_ONCE((int)val <= 0);
+	tp->snd_cwnd = val;
+}
+
 struct vrenotcp {
 	u32 saved_reset_cnt;
 	u32 max_cwnd;
