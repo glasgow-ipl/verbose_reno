@@ -11,6 +11,11 @@
 static int initial_ssthresh __read_mostly;
 module_param(initial_ssthresh, int, 0644);
 MODULE_PARM_DESC(initial_ssthresh, "initial value of slow start threshold");
+
+#define HINTS_NO 3
+static int application_hints[HINTS_NO] = {50, 125, 200};
+
+
 enum AACC_state {
 	RESTARTING_AFTER_IDLE=0,
 	CWND_GROWTH_SUSPENSION,
