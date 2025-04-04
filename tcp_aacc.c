@@ -48,13 +48,14 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	const struct inet_sock *isock = inet_sk(sk);
+	const struct vrenotcp *ca = inet_csk_ca(sk);
 
 	uint16_t sport = ntohs(isock->inet_sport);
 	uint16_t dport = ntohs(isock->inet_dport);
 
-	if(sport == 80 || sport == 8080) { // HTTP server doing
-		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u\n",
-				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh);
+	if(sport == 80 || sport == 8080) { // HTTP server OR test TCP server doing
+		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u should_resume: %u\n",
+				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, ca->should_resume);
 	}
 }
 
