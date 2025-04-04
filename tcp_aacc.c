@@ -347,6 +347,41 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 // returns: value that cwnd is reduced to after loss
 u32 tcp_reno_ssthresh(struct sock *sk)
 {
+	const struct tcp_sock *tp = tcp_sk(sk);
+	struct vrenotcp *ca = inet_csk_ca(sk);
+
+	u32 reno_reduced_cwnd = tcp_snd_cwnd(tp) >> 1U;
+	u32 cubic_reduced_cwnd = 0;
+
+	if (ca->aacc_state = CWND_GROWTH_SUSPENSION)
+	{
+		//We found loss after agressively reshaping the cwnd, i.e.:
+		// 1. After a cwnd jump
+		// 2. After loss detection and using beta (B) > 0.7 (cwnd = cwnd*b)
+		ca->aacc_state = SAFE_RETREAT;
+//TODO:
+	}
+
+	u32 desired_cwnd = pick_cwnd_jump_value(tp->snd_cwnd);
+
+	printk(KERN_INFO "Recalculating ssthresh after loss. AACC desired cwnd %u. Reno reduction %u. Cubic Reduction %u.", desired_cwnd, reno_reduced_cwnd, cubic_reduced_cwnd);
+
+	if (desired_cwnd < reno_reduced_cwnd)
+	{
+		// We do not need to worry, standard CCA will not cause bit-rate oscillation
+		return max(tcp_snd_cwnd(tp) >> 1U, 2U);
+	} else if (desired_cwnd > reno_reduced_cwnd && desired_cwnd < cubic_reduced_cwnd)
+	{
+		// The cwnd that we want is between reno and cubic cwnd decrease, we may be more liberal with future losses
+	} else {
+		// We are aiming to use a very high B (cwnd = cwnd * B), B < 1, so we need to be careful if further losses occur
+		u8 cwnd_suspension_rounds = desired_cwnd - reno_reduced_cwnd; // we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
+		ca->cwnd_growth_suspension_rounds = cwnd_suspension_rounds;
+		ca->aacc_state = CWND_GROWTH_SUSPENSION;
+
+		return desired_cwnd;
+	}
+
 	return max(tcp_snd_cwnd(tp) >> 1U, 2U);
 }
 
