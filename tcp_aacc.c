@@ -103,6 +103,7 @@ void tcp_aacc_init(struct sock *sk)
 	ca->cwnd_suspension_start_time = 0;
 
 	ca->aacc_state = NORMAL;
+	printk(KERN_INFO "AACC connection initiated.");
 
 	if(initial_ssthresh) 
 	{
@@ -167,6 +168,7 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 			// Forget the current max cwnd value
 			if (ca->aacc_state == CWND_GROWTH_SUSPENSION) 
 			{
+				printk(KERN_INFO "Repeated loss detected.");
 				ca->max_cwnd = TCP_INIT_CWND;
 			}
 
