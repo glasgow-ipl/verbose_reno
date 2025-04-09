@@ -18,6 +18,8 @@ static int application_hints[HINTS_NO] = {50, 125, 200};
 
 enum AACC_state {
 	RESTARTING_AFTER_IDLE=0,
+	CWND_JUMP_CONFIRMATION,
+	CWND_JUMP_LOSS_MONITORING,
 	CWND_GROWTH_SUSPENSION,
 	SAFE_RETREAT,
 	NORMAL
@@ -37,6 +39,9 @@ struct vrenotcp {
 	u32 saved_reset_cnt;
 	u32 max_cwnd;
 	u32 prev_rtt;
+	u32 cwnd_jump_mark;
+	u32 cwnd_restart_flight_mark;
+	u32 pre_jump_window;
 	u8 should_resume;
 	u8 cwnd_growth_suspension_rounds;
 	u32 cwnd_suspension_start_time;
@@ -48,7 +53,7 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	const struct inet_sock *isock = inet_sk(sk);
-	const struct vrenotcp *ca = inet_csk_ca(sk);
+	struct vrenotcp *ca = inet_csk_ca(sk);
 
 	uint16_t sport = ntohs(isock->inet_sport);
 	uint16_t dport = ntohs(isock->inet_dport);
@@ -56,6 +61,25 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 	if(sport == 80 || sport == 8080) { // HTTP server OR test TCP server doing
 		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u should_resume: %u\n",
 				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, ca->should_resume);
+		printk(KERN_INFO "Delivered %u byte to ack %u", tp->delivered, tp->snd_una);
+
+		if (tp->delivered)
+		{
+			if (tp->delivered >= ca->cwnd_restart_flight_mark)
+			{
+				printk(KERN_INFO "Flight mark acknowledged");
+				ca->cwnd_restart_flight_mark = TCP_INFINITE_SSTHRESH;
+				ca->aacc_state = CWND_JUMP_CONFIRMATION;
+			}
+
+			if (tp->delivered >= ca->cwnd_jump_mark)
+			{
+				printk(KERN_INFO "CWND Jump Acknowledged");
+				ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
+				ca->aacc_state = CWND_GROWTH_SUSPENSION;
+			}
+		}
+		
 	}
 }
 
@@ -66,6 +90,8 @@ static inline void tcp_aacc_reset(struct vrenotcp *ca)
 		ca->max_cwnd = 0;
 		ca->prev_rtt = 0;
 		ca->cwnd_growth_suspension_rounds = 0;
+		ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
+		ca->cwnd_restart_flight_mark = TCP_INFINITE_SSTHRESH;
 }
 
 
@@ -142,6 +168,17 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 			if (ca->aacc_state == CWND_GROWTH_SUSPENSION) 
 			{
 				ca->max_cwnd = TCP_INIT_CWND;
+			}
+
+			if (ca->aacc_state == RESTARTING_AFTER_IDLE)
+			{
+				//TODO:
+			}
+
+			if (ca->aacc_state == CWND_JUMP_CONFIRMATION)
+			{
+				// We have lost a packet before acknowledging the cwnd jump. The jump may have been too aggressive, enter SR immediately
+				printk(KERN_INFO "Dup ack loss occurred before jump window could be confirmed, entering SR...");
 			}
 
 			break;
@@ -317,6 +354,10 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		printk(KERN_INFO "Restarting after idle, saved RTT us %u MAX_CWND %u, selected value: %u", ca->prev_rtt, ca->max_cwnd, selected_cwnd);
 		ca->prev_rtt = 0;
 		ca->max_cwnd = 0;
+		ca->pre_jump_window = tp->snd_cwnd;
+		// Set the restart flight and cwnd jump marks
+		ca->cwnd_restart_flight_mark = tp->delivered + tp->snd_cwnd - 1;
+		ca->cwnd_jump_mark = tp->delivered + tp->snd_cwnd + selected_cwnd - 1;
 
 		// We are pesimistically adding one to the suspension rounds as the computation below returns the whole part of the number
 		u8 cwnd_growth_suspension_rounds = ilog2(selected_cwnd / tp->snd_cwnd) + 1;
