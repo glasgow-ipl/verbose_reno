@@ -124,6 +124,7 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 	}
 }
 
+
 // ACK Received
 void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 {
@@ -420,32 +421,37 @@ u32 tcp_reno_ssthresh(struct sock *sk)
 		// 2. After loss detection and using beta (B) > 0.7 (cwnd = cwnd*b)
 		ca->aacc_state = AACC_SAFE_RETREAT;
 //TODO:
-// Implement CR
+// Implement SR
 	}
 
 	u32 desired_cwnd = pick_cwnd_jump_value(tp->snd_cwnd);
 
 	printk(KERN_INFO "Recalculating ssthresh after loss. AACC desired cwnd %u. Reno reduction %u. Cubic Reduction %u.", desired_cwnd, reno_reduced_cwnd, cubic_reduced_cwnd);
 
-	if (desired_cwnd < reno_reduced_cwnd)
+	// We can Force SR if we remove this if statement **AND** supply desired cwnd > link capacity
+	if (ca->should_resume)
 	{
-		printk(KERN_INFO "Normal cwnd reduction");
-		// We do not need to worry, standard CCA will not cause bit-rate oscillation
-		return max(tcp_snd_cwnd(tp) >> 1U, 2U);
-	} else if (desired_cwnd > reno_reduced_cwnd && desired_cwnd < cubic_reduced_cwnd)
-	{
-		// The cwnd that we want is between reno and cubic cwnd decrease, we may be more liberal with future losses
-	} else {
-		// We are aiming to use a very high B (cwnd = cwnd * B), B < 1, so we need to be careful if further losses occur
-		printk(KERN_INFO "Low AACC cwnd reduction after loss, dangerous territory.");
-		u8 cwnd_suspension_rounds = desired_cwnd - reno_reduced_cwnd; // we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
-		ca->AACC_CWND_GROWTH_SUSPENSION_rounds = cwnd_suspension_rounds;
-		ca->aacc_state = AACC_CWND_GROWTH_SUSPENSION;
+		// Only enable AACC calculations _after_ the first cwnd reset. Leave TCP Reno handle loss before that.
+		if (desired_cwnd < reno_reduced_cwnd)
+		{
+			printk(KERN_INFO "Normal cwnd reduction");
+			// We do not need to worry, standard CCA will not cause bit-rate oscillation
+			return max(tcp_snd_cwnd(tp) >> 1U, 2U);
+		} else if (desired_cwnd > reno_reduced_cwnd && desired_cwnd < cubic_reduced_cwnd)
+		{
+			// The cwnd that we want is between reno and cubic cwnd decrease, we may be more liberal with future losses
+		} else {
+			// We are aiming to use a very high B (cwnd = cwnd * B), B < 1, so we need to be careful if further losses occur
+			printk(KERN_INFO "Low AACC cwnd reduction after loss, dangerous territory.");
+			u8 cwnd_suspension_rounds = desired_cwnd - reno_reduced_cwnd; // we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
+			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = cwnd_suspension_rounds;
+			ca->aacc_state = AACC_CWND_GROWTH_SUSPENSION;
 
-		return desired_cwnd;
+			return desired_cwnd;
+		}
 	}
 
-	// Default, should never really get here
+	printk(KERN_INFO "No CWND Invalidations occured, defaulting to underlying CCA");
 	return max(tcp_snd_cwnd(tp) >> 1U, 2U);
 }
 
@@ -456,6 +462,12 @@ u32 tcp_reno_undo_cwnd(struct sock *sk)
 
 	return max(tcp_snd_cwnd(tp), tp->prior_cwnd);
 }
+
+
+// void aacc_cong_control(struct sock *sk, const struct rate_sample *rs)
+// {
+// 	printk(KERN_INFO "Pckts sent");
+// }
 
 
 struct tcp_congestion_ops tcp_reno_verbose = {
