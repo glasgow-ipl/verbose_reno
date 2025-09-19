@@ -21,7 +21,7 @@ void tcp_vreno_in_ack_event(struct sock *sk, u32 flags)
 	uint16_t sport = ntohs(isock->inet_sport);
 	uint16_t dport = ntohs(isock->inet_dport);
 
-	if(sport == 80) { // HTTP server doing
+	if(sport == 80 || sport == 8080) { // HTTP server doing
 		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u\n",
 				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh);
 	}
@@ -66,7 +66,7 @@ void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		ca->saved_reset_cnt++;
 
-		printk(KERN_INFO "CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+		printk(KERN_INFO "CWND RESET+. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 	}
 
