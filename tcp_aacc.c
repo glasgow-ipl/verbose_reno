@@ -88,7 +88,8 @@ static int application_hints[HINTS_NO] = {50, 125, 200};
 static inline void tcp_snd_cwnd_set(struct tcp_sock *tp, u32 val)
 {
 	printk(KERN_INFO "My set %u", val);
-	printk(KERN_INFO "cwnd %u, packets out %u, retrans out %u, cwnd used %u, cwnd usage seq %u", tp->snd_cwnd, tp->packets_out, tp->retrans_out, tp->snd_cwnd_used, tp->max_packets_seq);
+	printk(KERN_INFO "cwnd %u, packets out %u, retrans out %u, cwnd used %u, cwnd usage seq %u", 
+		tp->snd_cwnd, tp->packets_out, tp->retrans_out, tp->snd_cwnd_used, tp->max_packets_seq);
 
 	WARN_ON_ONCE((int)val <= 0);
 	tp->snd_cwnd = val;
@@ -229,8 +230,8 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 	uint16_t dport = ntohs(isock->inet_dport);
 
 	if(sport == 80 || sport == 8080) { // HTTP server OR test TCP server doing
-		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u should_resume: %u\n",
-				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, ca->should_resume);
+		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u should_resume: %u in flight: %u retrans out: %u",
+				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, ca->should_resume, (tp->packets_out - tcp_left_out(tp) + tp->retrans_out), tp->retrans_out);
 		printk(KERN_INFO "Delivered %u byte to ack %u", tp->delivered, tp->snd_una);
 	}
 }
@@ -446,7 +447,7 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		printk(KERN_INFO "Prev RTT %u Prev RTT (ms) %u", (tp->srtt_us >> 3), (tp->srtt_us*1000) / HZ);
 	}
 
-	unsigned int selected_cwnd = pick_cwnd_jump_value(ca->max_cwnd);
+	
 	if (ca->aacc_state == AACC_RESTARTING_AFTER_IDLE && ca->prev_rtt)
 	{
 		printk(KERN_INFO "Restarting after idle, saved RTT us %u MAX_CWND %u, selected value: %u", ca->prev_rtt, ca->max_cwnd, selected_cwnd);
