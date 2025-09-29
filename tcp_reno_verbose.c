@@ -1,4 +1,4 @@
-#define DEBUG
+// #define DEBUG
 #include <linux/module.h>
 #include <net/tcp.h>
 #include <linux/vmalloc.h>
@@ -81,7 +81,7 @@ void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		ca->saved_reset_cnt++;
 
-		pr_debug("CWND RESET+. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+		my_log_once("CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 	}
 
