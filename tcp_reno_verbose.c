@@ -55,6 +55,16 @@ void tcp_vreno_init(struct sock *sk)
 
 	struct vrenotcp *ca = inet_csk_ca(sk);
 
+	s64 ms_since_load = ktime_to_ms(ktime_sub(ktime_get(), module_load_time));
+
+    /* Convert to h:m:s */
+    long total_sec = div_s64(ms_since_load, 1000);
+    long hours     = total_sec / 3600;
+    long minutes   = (total_sec % 3600) / 60;
+    long seconds   = total_sec % 60;
+
+    pr_debug("Module loaded %02ld:%02ld:%02ld ago\n",
+           hours, minutes, seconds);
 
 	if(initial_ssthresh) 
 	{
