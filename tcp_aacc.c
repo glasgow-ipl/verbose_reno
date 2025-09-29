@@ -10,6 +10,21 @@
 #include <net/tcp.h>
 #include <linux/vmalloc.h>
 
+#include <linux/once.h>   /* for DO_ONCE() in newer kernels */
+
+/*
+ * MY_LOG_ONCE() will:
+ *  - act like pr_info() if DEBUG is not defined
+ *  - act like pr_debug() but print only once if DEBUG is defined
+ */
+#ifdef DEBUG
+# define my_log_once(fmt, ...) \
+    pr_debug_once(fmt, ##__VA_ARGS__)
+#else
+# define my_log_once(fmt, ...) \
+    pr_info(fmt, ##__VA_ARGS__)
+#endif
+
 // TODO Implement:
 // [x] 1. Connection Start
 // [] 2. Normal CC
@@ -260,7 +275,7 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		ca->saved_reset_cnt++;
 
-		pr_debug("CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+		my_log_once("CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 
 		enter_aacc_state(ca, AACC_RESTARTING_AFTER_IDLE);
