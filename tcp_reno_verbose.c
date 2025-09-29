@@ -1,7 +1,22 @@
+#define DEBUG
 #include <linux/module.h>
 #include <net/tcp.h>
 #include <linux/vmalloc.h>
 
+#include <linux/once.h>   /* for DO_ONCE() in newer kernels */
+
+/*
+ * MY_LOG_ONCE() will:
+ *  - act like pr_info() if DEBUG is not defined
+ *  - act like pr_debug() but print only once if DEBUG is defined
+ */
+#ifdef DEBUG
+# define my_log_once(fmt, ...) \
+    pr_debug_once(fmt, ##__VA_ARGS__)
+#else
+# define my_log_once(fmt, ...) \
+    pr_info(fmt, ##__VA_ARGS__)
+#endif
 
 static int initial_ssthresh __read_mostly;
 module_param(initial_ssthresh, int, 0644);
@@ -22,7 +37,7 @@ void tcp_vreno_in_ack_event(struct sock *sk, u32 flags)
 	uint16_t dport = ntohs(isock->inet_dport);
 
 	if(sport == 80 || sport == 8080) { // HTTP server doing
-		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u\n",
+		pr_debug("ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u\n",
 				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh);
 	}
 }
@@ -43,7 +58,7 @@ void tcp_vreno_init(struct sock *sk)
 
 	if(initial_ssthresh) 
 	{
-		printk(KERN_INFO "INITIAL SSTHRESH: %u", initial_ssthresh);
+		pr_debug("INITIAL SSTHRESH: %u", initial_ssthresh);
 		tcp_sk(sk)->snd_ssthresh = initial_ssthresh;
 	}
 
@@ -54,7 +69,7 @@ void tcp_vreno_init(struct sock *sk)
 void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 {
 
-	printk(KERN_INFO "Congestion window event occurred: %u", ev);
+	pr_debug("Congestion window event occurred: %u", ev);
 	if(ev == CA_EVENT_CWND_RESTART)
 	{
 		const struct inet_sock *isock = inet_sk(sk);
@@ -66,7 +81,7 @@ void vreno_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		ca->saved_reset_cnt++;
 
-		printk(KERN_INFO "CWND RESET+. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+		pr_debug("CWND RESET+. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 	}
 
@@ -78,16 +93,16 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 	switch(new_state)
 	{
 		case TCP_CA_CWR:
-			printk(KERN_INFO "Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
+			pr_debug("Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
 			break;
 		case TCP_CA_Recovery:
-			printk(KERN_INFO "Trace event: Loss. Entering fast retransmit state (dup acks)\n");
+			pr_debug("Trace event: Loss. Entering fast retransmit state (dup acks)\n");
 			break;
 		case TCP_CA_Loss:
-			printk(KERN_INFO "Trace event: Loss. Entering loss recovery (Timeout)\n");
+			pr_debug("Trace event: Loss. Entering loss recovery (Timeout)\n");
 			break;
 		default:
-			printk(KERN_INFO "Trace event: Unknown %u\n", new_state);
+			pr_debug("Trace event: Unknown %u\n", new_state);
 	}
 
 }
@@ -111,14 +126,14 @@ struct tcp_congestion_ops tcp_reno_verbose = {
 
 static int __init tcp_reno_verbose_register(void)
 {
-	printk(KERN_INFO "Verbose Reno Going Up5");
+	pr_debug("Verbose Reno Going Up5");
 	return tcp_register_congestion_control(&tcp_reno_verbose);
 }
 
 
 static void __exit tcp_reno_verbose_unregister(void)
 {
-	printk(KERN_INFO "Verbose Reno Shutting Down5");
+	pr_debug("Verbose Reno Shutting Down5");
 	tcp_unregister_congestion_control(&tcp_reno_verbose);
 }
 
