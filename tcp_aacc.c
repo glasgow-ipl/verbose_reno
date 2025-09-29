@@ -5,6 +5,7 @@
 	2. Calculate "useful" window upon reset
 	3. Perform jump to useful_window / 2?
 */
+#define DEBUG
 #include <linux/module.h>
 #include <net/tcp.h>
 #include <linux/vmalloc.h>
@@ -89,8 +90,8 @@ static int application_hints[HINTS_NO] = {50, 125, 200};
 
 static inline void tcp_snd_cwnd_set(struct tcp_sock *tp, u32 val)
 {
-	printk(KERN_INFO "My set %u", val);
-	printk(KERN_INFO "cwnd %u, packets out %u, retrans out %u, cwnd used %u, cwnd usage seq %u", 
+	pr_debug("My set %u", val);
+	pr_debug("cwnd %u, packets out %u, retrans out %u, cwnd used %u, cwnd usage seq %u", 
 		tp->snd_cwnd, tp->packets_out, tp->retrans_out, tp->snd_cwnd_used, tp->max_packets_seq);
 
 	WARN_ON_ONCE((int)val <= 0);
@@ -128,7 +129,7 @@ struct vrenotcp {
 
 static inline void enter_aacc_state(struct vrenotcp *ca, enum AACC_state state)
 {
-	printk(KERN_INFO "Entering AACC state %s", AACC_STATE_LOOKUP[state]);
+	pr_debug("Entering AACC state %s", AACC_STATE_LOOKUP[state]);
 	ca->aacc_state = state;
 }
 
@@ -154,7 +155,7 @@ void tcp_aacc_init(struct sock *sk)
 	ca->cwnd_suspension_start_time = 0;
 
 	enter_aacc_state(ca, AACC_NORMAL);
-	printk(KERN_INFO "AACC connection initiated 9-17.");
+	pr_debug("AACC connection initiated 9-17.");
 
 	s64 ms_since_load = ktime_to_ms(ktime_sub(ktime_get(), module_load_time));
 
@@ -164,12 +165,12 @@ void tcp_aacc_init(struct sock *sk)
     long minutes   = (total_sec % 3600) / 60;
     long seconds   = total_sec % 60;
 
-    printk(KERN_INFO "Module loaded %02ld:%02ld:%02ld ago\n",
+    pr_debug("Module loaded %02ld:%02ld:%02ld ago\n",
            hours, minutes, seconds);
 
 	if(initial_ssthresh) 
 	{
-		printk(KERN_INFO "INITIAL SSTHRESH: %u", initial_ssthresh);
+		pr_debug("INITIAL SSTHRESH: %u", initial_ssthresh);
 		tcp_sk(sk)->snd_ssthresh = initial_ssthresh;
 	}
 
@@ -188,7 +189,7 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 
 	if(sport == 80 || sport == 8080) { // HTTP server OR test TCP server doing
 	
-		printk(KERN_INFO "Num packet(s) ACK'd: %u", sample->pkts_acked);
+		pr_debug("Num packet(s) ACK'd: %u", sample->pkts_acked);
 
 		if (tp->delivered)
 		{
@@ -196,12 +197,12 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 			if(ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 			{
 				ca->pipe_ack += sample->pkts_acked;
-				printk(KERN_INFO "Increasing PIPE ACK to %u", ca->pipe_ack);
+				pr_debug("Increasing PIPE ACK to %u", ca->pipe_ack);
 			}
 
 			if (tp->delivered >= ca->cwnd_restart_flight_mark)
 			{
-				printk(KERN_INFO "Flight mark acknowledged");
+				pr_debug("Flight mark acknowledged");
 
 				// TODO: We need to verify the restart_srtt here!!!
 
@@ -214,7 +215,7 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 
 			if (tp->delivered >= ca->cwnd_jump_mark)
 			{
-				printk(KERN_INFO "CWND Jump Acknowledged");
+				pr_debug("CWND Jump Acknowledged");
 				ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
 				enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
 			}
@@ -234,9 +235,9 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 	uint16_t dport = ntohs(isock->inet_dport);
 
 	if(sport == 80 || sport == 8080) { // HTTP server OR test TCP server doing
-		printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u should_resume: %u in flight: %u retrans out: %u",
+		pr_debug("ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u should_resume: %u in flight: %u retrans out: %u",
 				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, ca->should_resume, (tp->packets_out - tcp_left_out(tp) + tp->retrans_out), tp->retrans_out);
-		printk(KERN_INFO "Delivered %u byte to ack %u", tp->delivered, tp->snd_una);
+		pr_debug("Delivered %u byte to ack %u", tp->delivered, tp->snd_una);
 	}
 }
 
@@ -245,7 +246,7 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 {
 
-	printk(KERN_INFO "Congestion window event occurred: %u", ev);
+	pr_debug("Congestion window event occurred: %u", ev);
 
 	// CA_EVENT_COMPLETE_CWR is emitted when the lost packet (3 dup acks for example) is ACK'd and CC can continue to normal  
 	if(ev == CA_EVENT_CWND_RESTART)
@@ -259,7 +260,7 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		ca->saved_reset_cnt++;
 
-		printk(KERN_INFO "CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+		pr_debug("CWND RESET. Reset count: %u Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 
 		enter_aacc_state(ca, AACC_RESTARTING_AFTER_IDLE);
@@ -285,19 +286,19 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 	switch(new_state)
 	{
 		case TCP_CA_Open:
-			printk(KERN_INFO "Trace event: All normal (Recovery completed)");
+			pr_debug("Trace event: All normal (Recovery completed)");
 			break;
 		case TCP_CA_CWR:
-			printk(KERN_INFO "Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
+			pr_debug("Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
 			break;
 		case TCP_CA_Recovery:
-			printk(KERN_INFO "Trace event: Loss. Entering fast retransmit state (dup acks)\n");
+			pr_debug("Trace event: Loss. Entering fast retransmit state (dup acks)\n");
 			break;
 		case TCP_CA_Loss:
-			printk(KERN_INFO "Trace event: Loss. Entering loss recovery (Timeout)\n");
+			pr_debug("Trace event: Loss. Entering loss recovery (Timeout)\n");
 			break;
 		default:
-			printk(KERN_INFO "Trace event: Unknown %u\n", new_state);
+			pr_debug("Trace event: Unknown %u\n", new_state);
 	}
 
 }
@@ -321,7 +322,7 @@ static inline u32 tcp_snd_cwnd(const struct tcp_sock *tp)
  */
 u32 tcp_slow_start(struct tcp_sock *tp, u32 acked)
 {
-	printk(KERN_INFO "Slow Start CCA");
+	pr_debug("Slow Start CCA");
 	u32 cwnd = min(tcp_snd_cwnd(tp) + acked, tp->snd_ssthresh);
 
 	acked -= cwnd - tcp_snd_cwnd(tp);
@@ -336,7 +337,7 @@ u32 tcp_slow_start(struct tcp_sock *tp, u32 acked)
  */
 void tcp_cong_avoid_ai(struct tcp_sock *tp, u32 w, u32 acked)
 {
-	printk(KERN_INFO "cong avoid called");
+	pr_debug("cong avoid called");
 
 	/* If credits accumulated at a higher w, apply them gently now. */
 	if (tp->snd_cwnd_cnt >= w) {
@@ -364,7 +365,7 @@ void tcp_cong_avoid_ai(struct tcp_sock *tp, u32 w, u32 acked)
  */
 void tcp_reno_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
-	printk(KERN_INFO "Reno CCA");
+	pr_debug("Reno CCA");
 	struct tcp_sock *tp = tcp_sk(sk);
 	
 	if (!tcp_is_cwnd_limited(sk))
@@ -372,7 +373,7 @@ void tcp_reno_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
 	/* In "safe" area, increase. */
 	if (tcp_in_slow_start(tp)) {
-		printk(KERN_INFO "Calling SS");
+		pr_debug("Calling SS");
 		acked = tcp_slow_start(tp, acked);
 		if (!acked)
 			return;
@@ -412,12 +413,12 @@ unsigned int pick_cwnd_jump_value(int max_cwnd) {
  */
 void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
-	printk(KERN_INFO "AACC CA CALLED");
+	pr_debug("AACC CA CALLED");
 	struct vrenotcp *ca = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	unsigned int selected_cwnd = pick_cwnd_jump_value(ca->prev_max_cwnd);
 
-	printk(KERN_INFO "Selected cwnd: %u", selected_cwnd);
+	pr_debug("Selected cwnd: %u", selected_cwnd);
 	// if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION)
 	// {
 	// 	// TODO: Update the shadow cwnd
@@ -428,14 +429,14 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	if (ca->cwnd_suspension_start_time) 
 	{
 		u32 time_since_reset = tcp_jiffies32 - ca->cwnd_suspension_start_time;
-		printk(KERN_INFO "Time of reset %u Time since reset %u. Time (ms) %u", ca->cwnd_suspension_start_time, time_since_reset, (time_since_reset*1000) / HZ);
-		printk(KERN_INFO "Prev RTT %u Prev RTT (ms) %u", (tp->srtt_us >> 3), (tp->srtt_us*1000) / HZ);
+		pr_debug("Time of reset %u Time since reset %u. Time (ms) %u", ca->cwnd_suspension_start_time, time_since_reset, (time_since_reset*1000) / HZ);
+		pr_debug("Prev RTT %u Prev RTT (ms) %u", (tp->srtt_us >> 3), (tp->srtt_us*1000) / HZ);
 	}
 
 	
 	if (ca->aacc_state == AACC_RESTARTING_AFTER_IDLE && ca->prev_rtt)
 	{
-		printk(KERN_INFO "Restarting after idle, saved RTT us %u MAX_CWND %u, selected value: %u", ca->prev_rtt, ca->prev_max_cwnd, selected_cwnd);
+		pr_debug("Restarting after idle, saved RTT us %u MAX_CWND %u, selected value: %u", ca->prev_rtt, ca->prev_max_cwnd, selected_cwnd);
 		// TODO: What should we do with the (prev) max rtt? 
 		ca->prev_rtt = 0;
 
@@ -449,7 +450,7 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 			// This is because after a jump we need to validate and stagnate the cwnd growth, performing complex calculations, wheras the 
 			// slow start algorithm might be _good enough_ in this case.
 			// For now we are rolling with letting slow-start take place and we do not enable any jump optimisation.  
-			printk(KERN_INFO "ssthresh (%u) is bigger than selected cwnd (%u). Letting normal CC play out for this transfer...", tp->snd_ssthresh, selected_cwnd);
+			pr_debug("ssthresh (%u) is bigger than selected cwnd (%u). Letting normal CC play out for this transfer...", tp->snd_ssthresh, selected_cwnd);
 			enter_aacc_state(ca, AACC_NORMAL);
 		} else {
 			ca->pre_jump_window = tp->snd_cwnd;
@@ -473,13 +474,13 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = AACC_CWND_GROWTH_SUSPENSION_rounds;
 			ca->cwnd_suspension_start_time = tcp_jiffies32;
 
-			printk(KERN_INFO "Setting cwnd to %u. Waiting for %u RTTs before increasing cwnd. Setting reset time to %u", selected_cwnd, AACC_CWND_GROWTH_SUSPENSION_rounds, 
+			pr_debug("Setting cwnd to %u. Waiting for %u RTTs before increasing cwnd. Setting reset time to %u", selected_cwnd, AACC_CWND_GROWTH_SUSPENSION_rounds, 
 				ca->cwnd_suspension_start_time);
 			
 			// Set the congestion window based on the selected cwnd value
 			// tcp_snd_cwnd_set(tp, selected_cwnd);
 
-			printk(KERN_INFO "Cwnd jumping to %u", selected_cwnd);
+			pr_debug("Cwnd jumping to %u", selected_cwnd);
 			tcp_snd_cwnd_set(tp, selected_cwnd);
 			return;
 		} else {
@@ -501,7 +502,7 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
 		u32 cwnd_growth_cooldown = smoothed_rtt_us * ca->AACC_CWND_GROWTH_SUSPENSION_rounds;
 		u32 reset_rtts = cwnd_growth_cooldown / ((tp->srtt_us >> 3) / 1000);
-		printk(KERN_INFO "Time since reset us %u. cwnd growth cooldown %u, RTTs %u (%u/%u)", 
+		pr_debug("Time since reset us %u. cwnd growth cooldown %u, RTTs %u (%u/%u)", 
 			time_since_reset_us, cwnd_growth_cooldown, reset_rtts, time_since_reset_us / 1000, reset_rtts);
 
 		if (time_since_reset_us < cwnd_growth_cooldown)
@@ -510,7 +511,7 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		}
 
 		enter_aacc_state(ca, AACC_NORMAL);
-		printk(KERN_INFO "Entering Reno CCA");
+		pr_debug("Entering Reno CCA");
 	}
 
 
@@ -520,7 +521,7 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	// Only store max_cwnd value when we are not in in SS
 	if (tp->snd_cwnd > tp->snd_ssthresh && ca->max_cwnd < tp->snd_cwnd)
 	{
-		printk(KERN_INFO "Setting max cwnd to %u", tp->snd_cwnd);
+		pr_debug("Setting max cwnd to %u", tp->snd_cwnd);
 		ca->max_cwnd = tp->snd_cwnd;
 	}
 
@@ -549,7 +550,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 		// When we lose a packet due to dup acks, we are sending too fast, scale back the max_cwnd by applying CUBIC BETA 717/1024
 		u32 old_window = ca->max_cwnd;
 		ca->max_cwnd = ca->max_cwnd * 717/1024;
-		printk(KERN_INFO "Dup ACK loss. Reducing cwnd from %u to %u", old_window, ca->max_cwnd);
+		pr_debug("Dup ACK loss. Reducing cwnd from %u to %u", old_window, ca->max_cwnd);
 
 		u32 cwnd_red_reno = tcp_snd_cwnd(tp) >> 1U;
 		u32 cwnd_red_cubic = tcp_snd_cwnd(tp) * 717/1024;
@@ -567,21 +568,21 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 			// we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
 			u8 cwnd_suspension_rounds = desired_cwnd - cwnd_red_reno; 
 			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = cwnd_suspension_rounds;
-			printk(KERN_INFO "Should be reducing ssthresh to %u", desired_cwnd);
+			pr_debug("Should be reducing ssthresh to %u", desired_cwnd);
 
 			//TODO: FIXME This should be NON Reno SSTRESH
 			return max(tcp_snd_cwnd(tp) >> 1U, 2U);
 		}
 		else {
 			// we have accumulated such a large CWND in CA, that we can let TCP Reno reduce it and still manage to deliver the required quality
-			printk(KERN_INFO "Exiting with Reno ssthresh");
+			pr_debug("Exiting with Reno ssthresh");
 			return max(cwnd_red_reno, 2U);
 		}
 	}
 
 	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION || ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 	{
-		printk(KERN_INFO "Loss during Growth Suspension or CWND jump confirmation. Entering SR");
+		pr_debug("Loss during Growth Suspension or CWND jump confirmation. Entering SR");
 		enter_aacc_state(ca, AACC_SAFE_RETREAT);
 		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
 		return max(ca->pipe_ack >> 1U, 2U);
@@ -592,7 +593,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 // 	// Forget the current max cwnd value
 // 	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION) 
 // 	{
-// 		printk(KERN_INFO "Repeated loss detected.");
+// 		pr_debug("Repeated loss detected.");
 // 		ca->max_cwnd = TCP_INIT_CWND;
 // 	}
 
@@ -604,7 +605,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 // 	if (ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 // 	{
 // 		// We have lost a packet before acknowledging the cwnd jump. The jump may have been too aggressive, enter SR immediately
-// 		printk(KERN_INFO "Dup ack loss occurred before jump window could be confirmed, entering SR... Jump window %u Pipe ACK %u", tp->snd_cwnd, ca->pipe_ack); // the current cwnd _should_ be the jump window in this case
+// 		pr_debug("Dup ack loss occurred before jump window could be confirmed, entering SR... Jump window %u Pipe ACK %u", tp->snd_cwnd, ca->pipe_ack); // the current cwnd _should_ be the jump window in this case
 // 	}
 
 // 	//
@@ -626,7 +627,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 
 // 	u32 desired_cwnd = pick_cwnd_jump_value(tp->snd_cwnd);
 
-// 	printk(KERN_INFO "Recalculating ssthresh after loss. AACC desired cwnd %u. Reno reduction %u. Cubic Reduction %u.", desired_cwnd, reno_reduced_cwnd, cubic_reduced_cwnd);
+// 	pr_debug("Recalculating ssthresh after loss. AACC desired cwnd %u. Reno reduction %u. Cubic Reduction %u.", desired_cwnd, reno_reduced_cwnd, cubic_reduced_cwnd);
 
 // 	// We can Force SR if we remove this if statement **AND** supply desired cwnd > link capacity
 // 	if (ca->should_resume)
@@ -634,7 +635,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 // 		// Only enable AACC calculations _after_ the first cwnd reset. Leave TCP Reno handle loss before that.
 // 		if (desired_cwnd < reno_reduced_cwnd)
 // 		{
-// 			printk(KERN_INFO "Normal cwnd reduction");
+// 			pr_debug("Normal cwnd reduction");
 // 			// We do not need to worry, standard CCA will not cause bit-rate oscillation
 // 			return max(tcp_snd_cwnd(tp) >> 1U, 2U);
 // 		} else if (desired_cwnd > reno_reduced_cwnd && desired_cwnd < cubic_reduced_cwnd)
@@ -642,7 +643,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 // 			// The cwnd that we want is between reno and cubic cwnd decrease, we may be more liberal with future losses
 // 		} else {
 // 			// We are aiming to use a very high B (cwnd = cwnd * B), B < 1, so we need to be careful if further losses occur
-// 			printk(KERN_INFO "Low AACC cwnd reduction after loss, dangerous territory.");
+// 			pr_debug("Low AACC cwnd reduction after loss, dangerous territory.");
 // 			u8 cwnd_suspension_rounds = desired_cwnd - reno_reduced_cwnd; // we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
 // 			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = cwnd_suspension_rounds;
 // 			ca->aacc_state = AACC_CWND_GROWTH_SUSPENSION;
@@ -651,7 +652,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 // 		}
 // 	}
 
-	printk(KERN_INFO "No CWND Invalidations occured, defaulting to underlying CCA");
+	pr_debug("No CWND Invalidations occured, defaulting to underlying CCA");
 	return max(tcp_snd_cwnd(tp) >> 1U, 2U);
 }
 
@@ -666,7 +667,7 @@ u32 tcp_reno_undo_cwnd(struct sock *sk)
 
 // void aacc_cong_control(struct sock *sk, const struct rate_sample *rs)
 // {
-// 	printk(KERN_INFO "Cong control called. Packets (S)ACKED: %u", rs->acked_sacked);
+// 	pr_debug("Cong control called. Packets (S)ACKED: %u", rs->acked_sacked);
 // }
 
 
@@ -721,7 +722,7 @@ struct tcp_congestion_ops tcp_reno_verbose = {
 
 static int __init tcp_aacc_register(void)
 {
-	printk(KERN_INFO "TCP AACC Going Up");
+	pr_debug("TCP AACC Going Up");
 	module_load_time = ktime_get();
 	return tcp_register_congestion_control(&tcp_reno_verbose);
 }
@@ -729,7 +730,7 @@ static int __init tcp_aacc_register(void)
 
 static void __exit tcp_aacc_unregister(void)
 {
-	printk(KERN_INFO "TCP AACC Going Down");
+	pr_debug("TCP AACC Going Down");
 	tcp_unregister_congestion_control(&tcp_reno_verbose);
 }
 
