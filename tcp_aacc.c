@@ -109,6 +109,7 @@ enum AACC_state {
 struct vrenotcp {
 	u32 saved_reset_cnt;
 	u32 max_cwnd;
+	u32 prev_max_cwnd;
 	u32 prev_rtt;
 	u32 cwnd_jump_mark;
 	u32 cwnd_restart_flight_mark;
@@ -133,6 +134,7 @@ static inline void tcp_aacc_reset(struct vrenotcp *ca)
 {
 		ca->saved_reset_cnt = 0;
 		ca->max_cwnd = 0;
+		ca->prev_max_cwnd = 0;
 		ca->prev_rtt = 0;
 		ca->AACC_CWND_GROWTH_SUSPENSION_rounds = 0;
 		ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
@@ -261,6 +263,10 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 		enter_aacc_state(ca, AACC_RESTARTING_AFTER_IDLE);
 		// TODO: Does TCP Input modify ssthresh?
 		
+		// Set the max cwnd observed during this period to prev_max_cwnd
+		ca->prev_max_cwnd = ca->max_cwnd;
+		ca->max_cwnd = 0;
+
 		ca->prev_rtt = tp->srtt_us;
 		ca->should_resume = 1;
 		ca->pipe_ack = 0;
@@ -354,49 +360,24 @@ void tcp_cong_avoid_ai(struct tcp_sock *tp, u32 w, u32 acked)
 /* This is Jacobson's slow start and congestion avoidance.
  * SIGCOMM '88, p. 328.
  */
-// void tcp_reno_cong_avoid(struct sock *sk, u32 ack, u32 acked)
-// {
-// 	printk(KERN_INFO "Reno CCA");
-// 	struct tcp_sock *tp = tcp_sk(sk);
+void tcp_reno_cong_avoid(struct sock *sk, u32 ack, u32 acked)
+{
+	printk(KERN_INFO "Reno CCA");
+	struct tcp_sock *tp = tcp_sk(sk);
 	
-// 	// Prevent Reno CCA from modifying cwnd if we are in the cwnd growth suspension phase
-// 	struct vrenotcp *ca = inet_csk_ca(sk);
-// 	if (ca->cwnd_suspension_start_time && ca->AACC_CWND_GROWTH_SUSPENSION_rounds)
-// 	{
-// 		u32 time_now = tcp_jiffies32;
-// 		u32 smoothed_rtt_us = tp->srtt_us >> 3;
+	if (!tcp_is_cwnd_limited(sk))
+		return;
 
-// 		u32 time_since_reset_jiffies = time_now - ca->cwnd_suspension_start_time;
-		 
-// 		u32 time_since_reset_us = (time_since_reset_jiffies*1000000) / HZ;
-
-// 		u32 cwnd_growth_cooldown = smoothed_rtt_us * ca->AACC_CWND_GROWTH_SUSPENSION_rounds;
-// 		u32 reset_rtts = cwnd_growth_cooldown / ((tp->srtt_us >> 3) / 1000);
-// 		printk(KERN_INFO "Time since reset us %u. cwnd growth cooldown %u, RTTs %u (%u/%u)", time_since_reset_us, cwnd_growth_cooldown, reset_rtts, time_since_reset_us / 1000, reset_rtts);
-
-// 		if (time_since_reset_us < cwnd_growth_cooldown)
-// 		{
-// 			return;
-// 		}
-
-// 		ca->aacc_state = AACC_NORMAL;
-// 		printk(KERN_INFO "Entering Reno CCA");
-// 	}
-
-
-// 	if (!tcp_is_cwnd_limited(sk))
-// 		return;
-
-// 	/* In "safe" area, increase. */
-// 	if (tcp_in_slow_start(tp)) {
-// 		printk(KERN_INFO "Calling SS");
-// 		acked = tcp_slow_start(tp, acked);
-// 		if (!acked)
-// 			return;
-// 	}
-// 	/* In dangerous area, increase slowly. */
-// 	tcp_cong_avoid_ai(tp, tcp_snd_cwnd(tp), acked);
-// }
+	/* In "safe" area, increase. */
+	if (tcp_in_slow_start(tp)) {
+		printk(KERN_INFO "Calling SS");
+		acked = tcp_slow_start(tp, acked);
+		if (!acked)
+			return;
+	}
+	/* In dangerous area, increase slowly. */
+	tcp_cong_avoid_ai(tp, tcp_snd_cwnd(tp), acked);
+}
 
 
 unsigned int pick_cwnd_jump_value(int max_cwnd) {
@@ -452,35 +433,76 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	
 	if (ca->aacc_state == AACC_RESTARTING_AFTER_IDLE && ca->prev_rtt)
 	{
-		printk(KERN_INFO "Restarting after idle, saved RTT us %u MAX_CWND %u, selected value: %u", ca->prev_rtt, ca->max_cwnd, selected_cwnd);
+		printk(KERN_INFO "Restarting after idle, saved RTT us %u MAX_CWND %u, selected value: %u", ca->prev_rtt, ca->prev_max_cwnd, selected_cwnd);
+		// TODO: What should we do with the (prev) max rtt? 
 		ca->prev_rtt = 0;
-		ca->max_cwnd = 0;
-		ca->pre_jump_window = tp->snd_cwnd;
-		// Set the restart flight and cwnd jump marks
-		ca->cwnd_restart_flight_mark = tp->delivered + tp->snd_cwnd - 1;
-		ca->cwnd_jump_mark = tp->delivered + tp->snd_cwnd + selected_cwnd - 1;
 
-		// We are pesimistically adding one to the suspension rounds as the computation below returns the whole part of the number
-		u8 AACC_CWND_GROWTH_SUSPENSION_rounds = ilog2(selected_cwnd / tp->snd_cwnd) + 1;
-		ca->AACC_CWND_GROWTH_SUSPENSION_rounds = AACC_CWND_GROWTH_SUSPENSION_rounds;
-		ca->cwnd_suspension_start_time = tcp_jiffies32;
+		if (selected_cwnd < tp->snd_ssthresh)
+		{
+			printk(KERN_INFO "ssthresh (%u) is bigger than selected cwnd (%u). Letting normal CC play out for this transfer...", tp->snd_ssthresh, selected_cwnd);
+			enter_aacc_state(ca, AACC_NORMAL);
+		} else {
+			ca->pre_jump_window = tp->snd_cwnd;
+			// Set the restart flight and cwnd jump marks
+			ca->cwnd_restart_flight_mark = tp->delivered + tp->snd_cwnd - 1;
+			ca->cwnd_jump_mark = tp->delivered + tp->snd_cwnd + selected_cwnd - 1;
+		}
 
-		printk(KERN_INFO "Setting cwnd to %u. Waiting for %u RTTs before increasing cwnd. Setting reset time to %u", selected_cwnd, AACC_CWND_GROWTH_SUSPENSION_rounds, 
-			ca->cwnd_suspension_start_time);
-		
-		// Set the congestion window based on the selected cwnd value
-		// tcp_snd_cwnd_set(tp, selected_cwnd);
+
 	}
 
-	if (ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION && tp->snd_cwnd < selected_cwnd)
+	if (ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 	{
-		// We have transitioned to cwnd jump confirmation, but we have not yet made the jump. 
-		// Perform the jump now and exit cong_avoid.
+		if (tp->snd_cwnd < selected_cwnd)
+		{
+			// We have transitioned to cwnd jump confirmation, but we have not yet made the jump. 
+			// Perform the jump now and exit cong_avoid.
 
-		printk(KERN_INFO "Cwnd jumping to %u", selected_cwnd);
-		tcp_snd_cwnd_set(tp, selected_cwnd);
-		return;
+			// We are pesimistically adding one to the suspension rounds as the computation below returns the whole part of the number
+			u8 AACC_CWND_GROWTH_SUSPENSION_rounds = ilog2(selected_cwnd / tp->snd_cwnd) + 1;
+			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = AACC_CWND_GROWTH_SUSPENSION_rounds;
+			ca->cwnd_suspension_start_time = tcp_jiffies32;
+
+			printk(KERN_INFO "Setting cwnd to %u. Waiting for %u RTTs before increasing cwnd. Setting reset time to %u", selected_cwnd, AACC_CWND_GROWTH_SUSPENSION_rounds, 
+				ca->cwnd_suspension_start_time);
+			
+			// Set the congestion window based on the selected cwnd value
+			// tcp_snd_cwnd_set(tp, selected_cwnd);
+
+			printk(KERN_INFO "Cwnd jumping to %u", selected_cwnd);
+			tcp_snd_cwnd_set(tp, selected_cwnd);
+			return;
+		} else {
+			// We have set the cwnd = jump window and are waiting to ack it. DO NOT INCREASE CWND HERE
+			return;
+		}
+		
 	}
+
+	// Prevent CCA from modifying cwnd if we are in the cwnd growth suspension phase
+	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION && ca->cwnd_suspension_start_time && ca->AACC_CWND_GROWTH_SUSPENSION_rounds)
+	{
+		u32 time_now = tcp_jiffies32;
+		u32 smoothed_rtt_us = tp->srtt_us >> 3;
+
+		u32 time_since_reset_jiffies = time_now - ca->cwnd_suspension_start_time;
+		 
+		u32 time_since_reset_us = (time_since_reset_jiffies*1000000) / HZ;
+
+		u32 cwnd_growth_cooldown = smoothed_rtt_us * ca->AACC_CWND_GROWTH_SUSPENSION_rounds;
+		u32 reset_rtts = cwnd_growth_cooldown / ((tp->srtt_us >> 3) / 1000);
+		printk(KERN_INFO "Time since reset us %u. cwnd growth cooldown %u, RTTs %u (%u/%u)", 
+			time_since_reset_us, cwnd_growth_cooldown, reset_rtts, time_since_reset_us / 1000, reset_rtts);
+
+		if (time_since_reset_us < cwnd_growth_cooldown)
+		{
+			return;
+		}
+
+		enter_aacc_state(ca, AACC_NORMAL);
+		printk(KERN_INFO "Entering Reno CCA");
+	}
+
 
 	// Let Reno handle cwnd calculation
 	tcp_reno_cong_avoid(sk, ack, acked);
@@ -532,7 +554,8 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 			enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
 			//TODO IMPL
 			//Is it done for NORMAL CC?
-			u8 cwnd_suspension_rounds = desired_cwnd - cwnd_red_reno; // we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
+			// we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
+			u8 cwnd_suspension_rounds = desired_cwnd - cwnd_red_reno; 
 			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = cwnd_suspension_rounds;
 			printk(KERN_INFO "Should be reducing ssthresh to %u", desired_cwnd);
 
