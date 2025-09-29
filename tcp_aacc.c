@@ -629,7 +629,7 @@ u32 tcp_reno_undo_cwnd(struct sock *sk)
 
 // void aacc_cong_control(struct sock *sk, const struct rate_sample *rs)
 // {
-// 	printk(KERN_INFO "Pckts sent");
+// 	printk(KERN_INFO "Cong control called. Packets (S)ACKED: %u", rs->acked_sacked);
 // }
 
 
@@ -671,6 +671,9 @@ struct tcp_congestion_ops tcp_reno_verbose = {
 	// Purpose: update RTT/throughput estimators, react to ACK pacing.
 	// ---------> Comments: We use it to build the PipeSize
 	.pkts_acked = tcp_aacc_pkts_acked,
+
+	// DO NOT USE THE FOLLOWING FUNCTION!!!! IT overwrites cong_avoid! Both cannot exist at the same time.
+	// .cong_control = aacc_cong_control,
 
 
 	// 	Called when TCP’s internal state machine changes (TCP_CA_Open, TCP_CA_CWR, …).
