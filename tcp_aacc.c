@@ -1,3 +1,5 @@
+// TODO: IF we are restarting after idle BUT out "best" value is below the ssthresh we should just let normal CC handle the transmission
+
 /*
 	1. Get Rates for transfer from application (hardcode)
 	2. Calculate "useful" window upon reset
@@ -439,6 +441,14 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
 		if (selected_cwnd < tp->snd_ssthresh)
 		{
+			// AACC Note:
+			// If ssthresh is bigger than the selected cwnd, technically, we could perform a jump to selected cwnd immediately, then allow the 
+			// slow-start to further grow the cwnd.
+			// We probably should not do this/will not gain much if ssthresh will be reached in "few" rounds.
+			// TODO: Compute "few"
+			// This is because after a jump we need to validate and stagnate the cwnd growth, performing complex calculations, wheras the 
+			// slow start algorithm might be _good enough_ in this case.
+			// For now we are rolling with letting slow-start take place and we do not enable any jump optimisation.  
 			printk(KERN_INFO "ssthresh (%u) is bigger than selected cwnd (%u). Letting normal CC play out for this transfer...", tp->snd_ssthresh, selected_cwnd);
 			enter_aacc_state(ca, AACC_NORMAL);
 		} else {
