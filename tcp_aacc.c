@@ -432,7 +432,9 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	printk(KERN_INFO "AACC CA CALLED");
 	struct vrenotcp *ca = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
+	unsigned int selected_cwnd = pick_cwnd_jump_value(ca->prev_max_cwnd);
 
+	printk(KERN_INFO "Selected cwnd: %u", selected_cwnd);
 	// if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION)
 	// {
 	// 	// TODO: Update the shadow cwnd
@@ -486,6 +488,7 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	// Only store max_cwnd value when we are not in in SS
 	if (tp->snd_cwnd > tp->snd_ssthresh && ca->max_cwnd < tp->snd_cwnd)
 	{
+		printk(KERN_INFO "Setting max cwnd to %u", tp->snd_cwnd);
 		ca->max_cwnd = tp->snd_cwnd;
 	}
 
@@ -503,7 +506,8 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 	const struct tcp_sock *tp = tcp_sk(sk);
 	struct vrenotcp *ca = inet_csk_ca(sk);
 
-	printk("Recalculating ssthresh rst count %u state %d state=normal? %u aacc ssthresh check %u", ca->saved_reset_cnt, ca->aacc_state, ca->aacc_state == AACC_NORMAL, ca->aacc_state == AACC_NORMAL && ca->saved_reset_cnt);
+	printk("Recalculating ssthresh rst count %u state %d state=normal? %u aacc ssthresh check %u", 
+		ca->saved_reset_cnt, ca->aacc_state, ca->aacc_state == AACC_NORMAL, ca->aacc_state == AACC_NORMAL && ca->saved_reset_cnt);
 	// 
 	// Taken From Trace State
 	// 
@@ -542,10 +546,10 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 		}
 	}
 
-	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION)
+	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION || ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 	{
+		printk(KERN_INFO "Loss during Growth Suspension or CWND jump confirmation. Entering SR");
 		enter_aacc_state(ca, AACC_SAFE_RETREAT);
-		printk(KERN_INFO "Loss during Growth Suspension. Enter SR");
 		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
 		return max(ca->pipe_ack >> 1U, 2U);
 	}
@@ -646,7 +650,7 @@ struct tcp_congestion_ops tcp_reno_verbose = {
 	// It _may_ trigger a transition of the TCP state machine to TCP_LOSS, we _may_ need to overwrite this if we enter cwnd growth suspension...
 	.ssthresh	= tcp_aacc_ssthresh,
 
-	// ---------- The TCP State machine updates cwnd in this function.
+	// ---------- The TCP State machine UPDATES CWND in this function.
 	// This function is called after an ACK is received.
 	// When a loss occurs tcp_reno_ssthresh is called.
 	// tcp_reno_ssthresh applies beta to cwnd and sets that as the ssthresh
