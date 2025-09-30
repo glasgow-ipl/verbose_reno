@@ -597,9 +597,12 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION || ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 	{
 		pr_debug("Loss during Growth Suspension or CWND jump confirmation. Entering SR");
+		ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
 		enter_aacc_state(ca, AACC_SAFE_RETREAT);
 		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
-		return max(ca->pipe_ack >> 1U, 2U);
+		u32 cubic_pipe_ack = ca->pipe_ack * 717 / 1024;
+
+		return max(cubic_pipe_ack, 2U);
 	}
 	
 
