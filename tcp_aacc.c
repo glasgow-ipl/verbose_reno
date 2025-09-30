@@ -553,7 +553,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 	const struct tcp_sock *tp = tcp_sk(sk);
 	struct vrenotcp *ca = inet_csk_ca(sk);
 
-	printk("Recalculating ssthresh rst count %u state %d state=normal? %u aacc ssthresh check %u", 
+	pr_debug("Recalculating ssthresh rst count %u state %d state=normal? %u aacc ssthresh check %u", 
 		ca->saved_reset_cnt, ca->aacc_state, ca->aacc_state == AACC_NORMAL, ca->aacc_state == AACC_NORMAL && ca->saved_reset_cnt);
 	// 
 	// Taken From Trace State
