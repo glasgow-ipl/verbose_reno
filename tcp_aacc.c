@@ -170,7 +170,6 @@ void tcp_aacc_init(struct sock *sk)
 	ca->cwnd_suspension_start_time = 0;
 
 	enter_aacc_state(ca, AACC_NORMAL);
-	pr_debug("AACC connection initiated 9-17.");
 
 	s64 ms_since_load = ktime_to_ms(ktime_sub(ktime_get(), module_load_time));
 
