@@ -19,7 +19,7 @@
  */
 #ifdef DEBUG
 # define my_log_once(fmt, ...) \
-    pr_debug_once(fmt, ##__VA_ARGS__)
+    pr_debug(fmt, ##__VA_ARGS__)
 #else
 # define my_log_once(fmt, ...) \
     pr_info(fmt, ##__VA_ARGS__)
