@@ -1,4 +1,19 @@
-// TODO: IF we are restarting after idle BUT out "best" value is below the ssthresh we should just let normal CC handle the transmission
+// Day 1
+// Need to further research how reno sets ssthresh during reset. 
+//It could be that AACC is stagnating growth for _too long_
+
+// Day 2
+// Provide shadow cwnd implementation for cwnd growth suspension. Compare time spent using mathematical model to shadow cwnd.
+
+// changes:
+// Bugfixes
+// Safe Retreat PIPE ack is 0.7'd instead of 0.5'd
+
+// What happens in the case where:
+// 1. We attempted a jump
+// 2. The jump failed
+// 3. We recovered in SR
+// 4. The "SR exit ssthresh" is **lower** than the ssthresh that we had from __before__ the reset? 
 
 /*
 	1. Get Rates for transfer from application (hardcode)
@@ -221,6 +236,7 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 				// TODO: We need to verify the restart_srtt here!!!
 
 				ca->cwnd_restart_flight_mark = TCP_INFINITE_SSTHRESH;
+				ca->pipe_ack = tp->snd_cwnd;
 				enter_aacc_state(ca, AACC_CWND_JUMP_CONFIRMATION);
 
 				// Should we set the cwnd here or in cong_avoid?
