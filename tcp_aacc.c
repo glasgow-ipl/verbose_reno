@@ -110,6 +110,8 @@ const static char *AACC_STATE_LOOKUP[] = {
 	"AACC_SAFE_RETREAT",
 };
 
+const static u32 MTU=1448;
+
 static int initial_ssthresh __read_mostly;
 module_param(initial_ssthresh, int, 0644);
 MODULE_PARM_DESC(initial_ssthresh, "initial value of slow start threshold");
@@ -146,7 +148,9 @@ struct vrenotcp {
 	u32 prev_rtt;
 	u32 cwnd_jump_mark;
 	u32 cwnd_restart_flight_mark;
+	u32 cwnd_restart_flight_mark_bytes;
 	u32 pre_jump_window;
+	u32 target_window;
 	u32 pipe_ack;
 	// There already is a variable prior_cwnd in struct tcp_sock (tp->prior_cwnd), we may use that instead?	
 	u32 cwnd_red; // cwnd that is set after a loss is discovered (in tcp_reno_ssthresh)
@@ -172,6 +176,7 @@ static inline void tcp_aacc_reset(struct vrenotcp *ca)
 		ca->AACC_CWND_GROWTH_SUSPENSION_rounds = 0;
 		ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
 		ca->cwnd_restart_flight_mark = TCP_INFINITE_SSTHRESH;
+		ca->cwnd_restart_flight_mark_bytes = TCP_INFINITE_SSTHRESH;
 		ca->pipe_ack = 0;
 }
 
@@ -209,8 +214,8 @@ void tcp_aacc_init(struct sock *sk)
 
 void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 {
-	const struct tcp_sock *tp = tcp_sk(sk);
 	const struct inet_sock *isock = inet_sk(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
 	struct vrenotcp *ca = inet_csk_ca(sk);
 
 	uint16_t sport = ntohs(isock->inet_sport);
@@ -223,10 +228,33 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 		if (tp->delivered)
 		{
 
-			if(ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
+			if(ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION || ca->aacc_state == AACC_SAFE_RETREAT)
 			{
 				ca->pipe_ack += sample->pkts_acked;
-				pr_debug("Increasing PIPE ACK to %u", ca->pipe_ack);
+				pr_debug("Increasing PIPE ACK to: %u snd_ack_bytes: %u snd_ack_packets: %u", ca->pipe_ack, 
+					(ca->cwnd_restart_flight_mark_bytes - tp->snd_una), (ca->cwnd_restart_flight_mark_bytes - tp->snd_una) / MTU);
+				pr_debug("Restart mark bytes: %u snd una: %u prr_out: %u", ca->cwnd_restart_flight_mark_bytes, tp->snd_una, tp->prr_out);
+
+				if(tp->snd_una >= ca->cwnd_restart_flight_mark_bytes)
+				{
+					// We have acknowledged the full jump.
+					if(ca->aacc_state == AACC_SAFE_RETREAT)
+					{
+						// We can transition to normal and (re)set the ssthresh.
+						// CR Draft says re-set between [0.5; 1] pipe_ack. Cubic uses 0.7. We will (re)set it to cubic here. 
+						// That way after PRR completes the cwnd will be set to the new ssthresh pipe_ack*0.7
+						
+						tp->snd_ssthresh = ca->pipe_ack * 717 / 1024; // Cubic Like
+						// tp->snd_ssthresh = ca->pipe_ack >> 1; // Reno Like
+						pr_debug("Setting new ssthresh to %u", tp->snd_ssthresh);
+						enter_aacc_state(ca, AACC_NORMAL);
+					} else {
+						// THE ONLY OTHER STATE CAN BE JUMP CONFIRMATION SEE OUTER IF
+						ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH; 
+						enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);	
+					}
+					
+				}
 			}
 
 			if (tp->delivered >= ca->cwnd_restart_flight_mark)
@@ -243,12 +271,28 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 				// Picking cong avoid for now
 			}
 
-			if (tp->delivered >= ca->cwnd_jump_mark)
-			{
-				pr_debug("CWND Jump Acknowledged");
-				ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
-				enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
-			}
+			// if (tp->delivered >= ca->cwnd_jump_mark)
+			// {
+			// 	pr_debug("CWND Jump Acknowledged");
+			// 	pr_debug("Delivered: %u snd_una %u", tp->delivered, tp->snd_una);
+			// 	if(ca->aacc_state == AACC_SAFE_RETREAT)
+			// 	{
+			// 		// we previously entered safe retreat, because we lost unvaldated packet. 
+			// 		// All unvalidated packets are now recovered, we can exit Safe Retreat and enter normal CC
+
+			// 		// Adjust the ssthresh to \beta*pipe_ack and potentially force a follow-on slow-start
+			// 		// \beta [0.5; 1] -> Reno beta = 0.5; Cubic beta = 0.7
+			// 		// tp->snd_ssthresh = ca->pipe_ack / 2;
+			// 		// enter_aacc_state(ca, AACC_NORMAL);
+			// 	} else if(ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION) {
+			// 		// we have acknoledged all unvalidated packets without detecting loss
+			// 		ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH; 
+			// 		enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
+			// 	} else {
+			// 		my_log_once("Error:: Acknowledged jump mark from an unexpected state. %s", AACC_STATE_LOOKUP[ca->aacc_state]);
+			// 	}
+				
+			// }
 		}
 	}
 }
@@ -313,12 +357,18 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 // Loss Detection (initial)
 void tcp_trace_state(struct sock* sk, u8 new_state)
 {
-
+	const struct tcp_sock *tp = tcp_sk(sk);
+	struct vrenotcp *ca = inet_csk_ca(sk);
 	// It might be beneficial to disallow use of max_cwnd if it cwnd was reset during recovery, i.e., _after_ a loss but before reaching the prior_cwnd
 	switch(new_state)
 	{
 		case TCP_CA_Open:
 			pr_debug("Trace event: All normal (Recovery completed)");
+			pr_debug("Delivered: %u snd_una %u", tp->delivered, tp->snd_una);
+			if(ca->aacc_state == AACC_SAFE_RETREAT)
+			{
+				pr_debug("Should exit SR here. Pipe ack is %u", ca->pipe_ack);
+			}
 			break;
 		case TCP_CA_CWR:
 			pr_debug("Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
@@ -513,9 +563,14 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 			
 			// Set the congestion window based on the selected cwnd value
 			// tcp_snd_cwnd_set(tp, selected_cwnd);
+			
+			u32 window_difference = selected_cwnd - tp->snd_cwnd; // we only need to packets up to that number to know that the jump succeeded 
 
 			pr_debug("Cwnd jumping to %u", selected_cwnd);
+			ca->target_window = selected_cwnd;
 			tcp_snd_cwnd_set(tp, selected_cwnd);
+
+			ca->cwnd_restart_flight_mark_bytes = tp->snd_una + window_difference * MTU;
 			return;
 		} else {
 			// We have set the cwnd = jump window and are waiting to ack it. DO NOT INCREASE CWND HERE
@@ -619,12 +674,13 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION || ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 	{
 		pr_debug("Loss during Growth Suspension or CWND jump confirmation. Entering SR");
-		ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
+		// ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
 		enter_aacc_state(ca, AACC_SAFE_RETREAT);
 		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
-		u32 cubic_pipe_ack = ca->pipe_ack * 717 / 1024;
+		u32 cubic_ssthresh = ca->pipe_ack * 717 / 1024;
+		u32 reno_ssthresh = ca->pipe_ack / 2;
 
-		return max(cubic_pipe_ack, 2U);
+		return max(reno_ssthresh, 2U);
 	}
 	
 
