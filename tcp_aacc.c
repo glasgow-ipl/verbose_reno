@@ -99,7 +99,7 @@
 	// 	Called when TCP’s internal state machine changes (TCP_CA_Open, TCP_CA_CWR, …).
 	// Purpose: handle transitions like open → recovery.
 	// +++++++++++++++++++++
-
+	
 static ktime_t module_load_time;
 const static char *AACC_STATE_LOOKUP[] = {
 	"AACC_NORMAL",
@@ -128,7 +128,7 @@ static inline void tcp_snd_cwnd_set(struct tcp_sock *tp, u32 val)
 	tp->snd_cwnd = val;
 }
 
-
+// TODO: Implement LOSS MONITORING
 enum AACC_state {
 	AACC_NORMAL=0,
 	AACC_RESTARTING_AFTER_IDLE,
@@ -265,8 +265,10 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 	uint16_t dport = ntohs(isock->inet_dport);
 
 	if(sport == 80 || sport == 8080) { // HTTP server OR test TCP server doing
-		pr_debug("ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u should_resume: %u in flight: %u retrans out: %u",
-				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, ca->should_resume, (tp->packets_out - tcp_left_out(tp) + tp->retrans_out), tp->retrans_out);
+		pr_debug("ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u 
+			should_resume: %u in flight: %u retrans out: %u",
+				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, 
+				ca->should_resume, (tp->packets_out - tcp_left_out(tp) + tp->retrans_out), tp->retrans_out);
 		pr_debug("Delivered %u byte to ack %u", tp->delivered, tp->snd_una);
 	}
 }
@@ -480,12 +482,14 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 			// This is because after a jump we need to validate and stagnate the cwnd growth, performing complex calculations, wheras the 
 			// slow start algorithm might be _good enough_ in this case.
 			// For now we are rolling with letting slow-start take place and we do not enable any jump optimisation.  
-			pr_debug("ssthresh (%u) is bigger than selected cwnd (%u). Letting normal CC play out for this transfer...", tp->snd_ssthresh, selected_cwnd);
+			pr_debug("ssthresh (%u) is bigger than selected cwnd (%u). Letting normal CC play out for this transfer...", 
+				tp->snd_ssthresh, selected_cwnd);
 			enter_aacc_state(ca, AACC_NORMAL);
 		} else {
 			ca->pre_jump_window = tp->snd_cwnd;
 			// Set the restart flight and cwnd jump marks
 			ca->cwnd_restart_flight_mark = tp->delivered + tp->snd_cwnd - 1;
+			pr_debug("Setting jump mark. Delivered %u snd_una %u", tp->delivered, tp->snd_una);
 			ca->cwnd_jump_mark = tp->delivered + tp->snd_cwnd + selected_cwnd - 1;
 		}
 
@@ -504,8 +508,8 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = AACC_CWND_GROWTH_SUSPENSION_rounds;
 			ca->cwnd_suspension_start_time = tcp_jiffies32;
 
-			pr_debug("Setting cwnd to %u. Waiting for %u RTTs before increasing cwnd. Setting reset time to %u", selected_cwnd, AACC_CWND_GROWTH_SUSPENSION_rounds, 
-				ca->cwnd_suspension_start_time);
+			pr_debug("Setting cwnd to %u. Waiting for %u RTTs before increasing cwnd. Setting reset time to %u", 
+				selected_cwnd, AACC_CWND_GROWTH_SUSPENSION_rounds, ca->cwnd_suspension_start_time);
 			
 			// Set the congestion window based on the selected cwnd value
 			// tcp_snd_cwnd_set(tp, selected_cwnd);
@@ -519,6 +523,8 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		}
 		
 	}
+
+	//TODO: Implement CWNG G Suspension using SHADOW CWND
 
 	// Prevent CCA from modifying cwnd if we are in the cwnd growth suspension phase
 	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION && ca->cwnd_suspension_start_time && ca->AACC_CWND_GROWTH_SUSPENSION_rounds)
