@@ -321,6 +321,24 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 					enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
 				}
 			}
+
+			if(ca->aacc_state == AACC_LOSS_MONITORING)
+			{
+				// if(tp->snd_una >= ca->sr_exit_bytes)
+				// {
+				// 	// We can transition back to CWND Growth Suspension
+				// 	pr_debug("Acknowledged all loss monitoring bytes, transitioning back to cwnd growth suspension");
+				// 	enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
+				// }
+
+				// When we get a SACK sample->pkts_acked may be 0. In that case we chose to be conservative and assume that only one packet was
+				// SACKed.
+				u8 acked_packets = max(1, sample->pkts_acked);
+				pr_debug("Increasing LM Acked packets %u", ca->loss_monitoring_acked_packets);
+				if (acked_packets >= tp->snd_cwnd)
+				{
+					pr_debug("We have acked at least one CWND worth of data since the loss.");
+				}
 			}
 
 			if (tp->delivered >= ca->cwnd_restart_flight_mark)
