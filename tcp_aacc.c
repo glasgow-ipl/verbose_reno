@@ -104,6 +104,45 @@
 	// Purpose: handle transitions like open → recovery.
 	// +++++++++++++++++++++
 	
+// TODO: MUST THINK ABOUT PIPE ACK UPDATES IN LOSS MONITORING / CWND GROWTH SUSPENSION
+
+// State machine progress:
+// [x] Every state can enter normal after RTO Timeout (tcp_trace_state())
+// [x] Every state can enter Restarting After Idle after an IDLE period (tcp_aacc_cwnd_event())
+//
+// --------- States:
+// ++ Restart After Idle:
+// [x] Transitions into CW Jump Confirmation AFTER flight mark is ACKd AND srtt check passess _todo_ (tcp_aacc_pkts_acked())
+//		[] Implement SRTT checks
+// [] Transitions into Normal CC
+//		[x] After triple dup  (tcp_aacc_ssthresh())
+//	TODO: SPECIFICATION	[x] If target cwnd < ssthresh (tcp_aacc_cong_avoid())
+//		[] IF srtt check does not pass
+//
+// ++ CW Jump Confirmation:
+// [x] Transitions into CWND Growth Suspension AFTER CWJ is fully ACKd (tcp_aacc_pkts_acked())
+// [x] Transitions into SR AFTER triple Dup ack OR ECN (tcp_aacc_ssthresh)
+//
+// ++ Cwng Growth Suspension:
+// --Partial [x] Transitions into Normal CC AFTER shadow_cwnd > cwnd (Currently using timeouts) (tcp_aacc_cong_avoid())
+// [X] Transitions into Loss Monitoring AFTER a loss (tcp_aacc_ssthresh())
+//
+// ++ Loss Monitoring:
+// [x] Transitions into Cwnd Growth Suspension AFTER end of recovery (TCP_CA_OPEN) (tcp_trace_state())
+// [] Loss Monitoring SHOULD also monitor the RTT
+// [x] Transitions into SR AFTER dup ack (tcp_aacc_ssthresh())
+// TODO: SPECIFICATION [x] Transitions into Cwng Growth Suspension once all pseudo-jump packets are ACKd
+//
+// ++ Safe Retreat
+// [] Transitions into Normal CC after Last Sent packet has been ACKd
+//		[x] works ONLY for CWND Growth Confirmation (tcp_aacc_pkts_acked())
+//		[] works for Loss Monitoring
+//
+// ++ Normal CC
+// [x] Transitions into CWND Growth Suspension freeing excess cwnd AFTER a loss (tcp_aacc_ssthresh())
+
+
+
 static ktime_t module_load_time;
 const static char *AACC_STATE_LOOKUP[] = {
 	"AACC_NORMAL",
@@ -121,7 +160,7 @@ module_param(initial_ssthresh, int, 0644);
 MODULE_PARM_DESC(initial_ssthresh, "initial value of slow start threshold");
 
 #define HINTS_NO 3
-static int application_hints[HINTS_NO] = {50, 125, 200};
+static int application_hints[HINTS_NO] = {10, 46, 80};
 
 
 static inline void tcp_snd_cwnd_set(struct tcp_sock *tp, u32 val)
@@ -190,6 +229,7 @@ void tcp_aacc_init(struct sock *sk)
 {
 
 	struct vrenotcp *ca = inet_csk_ca(sk);
+	s64 ms_since_load = ktime_to_ms(ktime_sub(ktime_get(), module_load_time));
 	ca->should_resume = 0;
 	ca->cwnd_suspension_start_time = 0;
 
@@ -197,14 +237,23 @@ void tcp_aacc_init(struct sock *sk)
 
 	s64 ms_since_load = ktime_to_ms(ktime_sub(ktime_get(), module_load_time));
 
-    /* Convert to h:m:s */
+	/* Convert to h:m:s */
     long total_sec = div_s64(ms_since_load, 1000);
     long hours     = total_sec / 3600;
     long minutes   = (total_sec % 3600) / 60;
     long seconds   = total_sec % 60;
 
+	enter_aacc_state(ca, AACC_NORMAL);
+
     pr_debug("Module loaded %02ld:%02ld:%02ld ago\n",
            hours, minutes, seconds);
+	
+	pr_debug("Application hints:");
+	int i=0;
+	for(i=0; i< HINTS_NO; i++)
+	{
+		pr_debug("%d", application_hints[i]);
+	}
 
 	if(initial_ssthresh) 
 	{
