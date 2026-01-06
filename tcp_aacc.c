@@ -233,10 +233,6 @@ void tcp_aacc_init(struct sock *sk)
 	ca->should_resume = 0;
 	ca->cwnd_suspension_start_time = 0;
 
-	enter_aacc_state(ca, AACC_NORMAL);
-
-	s64 ms_since_load = ktime_to_ms(ktime_sub(ktime_get(), module_load_time));
-
 	/* Convert to h:m:s */
     long total_sec = div_s64(ms_since_load, 1000);
     long hours     = total_sec / 3600;
