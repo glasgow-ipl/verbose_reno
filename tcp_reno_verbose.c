@@ -1,4 +1,4 @@
-// #define DEBUG
+#define DEBUG
 #include <linux/module.h>
 #include <net/tcp.h>
 #include <linux/vmalloc.h>
@@ -12,7 +12,7 @@
  */
 #ifdef DEBUG
 # define my_log_once(fmt, ...) \
-    pr_debug_once(fmt, ##__VA_ARGS__)
+    pr_debug(fmt, ##__VA_ARGS__)
 #else
 # define my_log_once(fmt, ...) \
     pr_info(fmt, ##__VA_ARGS__)
@@ -22,10 +22,23 @@ static int initial_ssthresh __read_mostly;
 module_param(initial_ssthresh, int, 0644);
 MODULE_PARM_DESC(initial_ssthresh, "initial value of slow start threshold");
 
+
+static ktime_t module_load_time;
 struct vrenotcp {
 	u32 saved_reset_cnt;
 
 };
+
+
+static inline void tcp_snd_cwnd_set(struct tcp_sock *tp, u32 val)
+{
+	pr_debug("My set %u", val);
+	pr_debug("cwnd %u, packets out %u, retrans out %u, cwnd used %u, cwnd usage seq %u", 
+		tp->snd_cwnd, tp->packets_out, tp->retrans_out, tp->snd_cwnd_used, tp->max_packets_seq);
+
+	WARN_ON_ONCE((int)val <= 0);
+	tp->snd_cwnd = val;
+}
 
 
 void tcp_vreno_in_ack_event(struct sock *sk, u32 flags)
@@ -137,6 +150,7 @@ struct tcp_congestion_ops tcp_reno_verbose = {
 static int __init tcp_reno_verbose_register(void)
 {
 	pr_debug("Verbose Reno Going Up5");
+	module_load_time = ktime_get();
 	return tcp_register_congestion_control(&tcp_reno_verbose);
 }
 

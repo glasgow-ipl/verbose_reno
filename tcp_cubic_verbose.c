@@ -24,10 +24,12 @@
  * this behaves the same as the original Reno.
  */
 
+#define DEBUG
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/math64.h>
 #include <net/tcp.h>
+#include <linux/printk.h>
 
 #define BICTCP_BETA_SCALE    1024	/* Scale factor beta calculation
 					 * max_cwnd = snd_cwnd * beta
@@ -128,6 +130,8 @@ static inline u32 bictcp_clock(void)
 #endif
 }
 
+static ktime_t module_load_time;
+
 static inline void bictcp_hystart_reset(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -145,12 +149,24 @@ static void bictcp_init(struct sock *sk)
 
 	bictcp_reset(ca);
 
-	printk(KERN_INFO "Hystart enabled: %d", hystart);
+	pr_debug( "Hystart enabled+: %d", hystart);
 	if (hystart)
 		bictcp_hystart_reset(sk);
 
 	if (!hystart && initial_ssthresh)
 		tcp_sk(sk)->snd_ssthresh = initial_ssthresh;
+
+	s64 ms_since_load = ktime_to_ms(ktime_sub(ktime_get(), module_load_time));
+
+	/* Convert to h:m:s */
+    long total_sec = div_s64(ms_since_load, 1000);
+    long hours     = total_sec / 3600;
+    long minutes   = (total_sec % 3600) / 60;
+    long seconds   = total_sec % 60;
+
+    pr_debug("Module loaded %02ld:%02ld:%02ld ago",
+           hours, minutes, seconds);
+	
 }
 
 static void bictcp_cwnd_event(struct sock *sk, enum tcp_ca_event event)
@@ -476,9 +492,9 @@ void vcubic_in_ack_event(struct sock *sk, u32 flags)
 	if(sport == 80 || sport == 8080) { // HTTP server doing
 		if(vc->saved_snd_cwnd != tp->snd_cwnd)
 		{
-			printk(KERN_INFO "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window %u ssthresh: %u\n\n",
+			pr_debug( "ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window %u ssthresh: %u",
 					sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
-			printk(KERN_INFO "Saved cwnd: %u, Current cwnd: %u\n", vc->saved_snd_cwnd, tp->snd_cwnd);
+			pr_debug( "Saved cwnd: %u, Current cwnd: %u", vc->saved_snd_cwnd, tp->snd_cwnd);
 			vc->saved_snd_cwnd = tp->snd_cwnd;
 		}
 	}
@@ -486,13 +502,13 @@ void vcubic_in_ack_event(struct sock *sk, u32 flags)
 
 
 static inline void vcubic_reset(struct bictcp *vc) {
-		printk(KERN_INFO "Reset occurred");
+		pr_debug( "Reset occurred");
 		vc->saved_snd_cwnd = 0;
 }
 
 void vcubic_init(struct sock *sk) {
 
-	printk(KERN_INFO "Initializing Verbose Cubic connection");
+	pr_debug( "Initializing Verbose Cubic connection");
 	struct bictcp *vc = inet_csk_ca(sk);
 	bictcp_init(sk);
 	vc->saved_snd_cwnd = 0;
@@ -501,7 +517,7 @@ void vcubic_init(struct sock *sk) {
 void vcubic_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 {
 
-	// printk(KERN_INFO "Congestion window event occurred: %u", ev);
+	// pr_debug( "Congestion window event occurred: %u", ev);
 	if(ev == CA_EVENT_CWND_RESTART)
 	{
 		const struct tcp_sock *tp = tcp_sk(sk);
@@ -509,7 +525,7 @@ void vcubic_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 
 		uint16_t sport = ntohs(isock->inet_sport);
 		uint16_t dport = ntohs(isock->inet_dport);
-		printk(KERN_INFO "CWND RESET. Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u\n",
+		pr_debug( "CWND RESET. Resetting sourcep: %u dstp: %u send window: %u recv window: %u ssthresh: %u",
 			 sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 	}
 
@@ -533,7 +549,8 @@ static struct tcp_congestion_ops cubictcp __read_mostly = {
 
 static int __init cubictcp_register(void)
 {
-	printk(KERN_INFO "Vcubic Going up");
+	pr_debug( "Vcubic Going up");
+	module_load_time = ktime_get();
 	BUILD_BUG_ON(sizeof(struct bictcp) > ICSK_CA_PRIV_SIZE);
 
 	/* Precompute a bunch of the scaling factors that are used per-packet
@@ -570,7 +587,7 @@ static int __init cubictcp_register(void)
 
 static void __exit cubictcp_unregister(void)
 {
-	printk(KERN_INFO "Verbose Cubic Going down");
+	pr_debug( "Verbose Cubic Going down");
 	tcp_unregister_congestion_control(&cubictcp);
 }
 
