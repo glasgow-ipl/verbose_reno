@@ -452,6 +452,13 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 			{
 				pr_debug("Should exit SR here. Pipe ack is %u", ca->pipe_ack);
 			}
+			//TODO: If we reach CA_OPEN while in LOSS MONITORING should we go back to CWND GROWTH SUSPENSION (Allow one loss to occur)
+			if(ca->aacc_state == AACC_LOSS_MONITORING)
+			{
+				// Perhaps we should do this ONE RTT AFTER CA_OPEN IF the RTT dropped
+				pr_debug("Lost packet that triggered Loss monitoring has been recovered.");
+				enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
+			}
 			break;
 		case TCP_CA_CWR:
 			pr_debug("Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
