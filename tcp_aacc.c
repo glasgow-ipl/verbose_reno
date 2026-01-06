@@ -15,6 +15,10 @@
 // 3. We recovered in SR
 // 4. The "SR exit ssthresh" is **lower** than the ssthresh that we had from __before__ the reset? 
 
+
+// Make sure draft:
+// 1. Has pipe ack = cwnd at the start of cwnd jump confirmation
+
 /*
 	1. Get Rates for transfer from application (hardcode)
 	2. Calculate "useful" window upon reset
