@@ -468,6 +468,9 @@ void tcp_trace_state(struct sock* sk, u8 new_state)
 			break;
 		case TCP_CA_Loss:
 			pr_debug("Trace event: Loss. Entering loss recovery (Timeout)\n");
+			enter_aacc_state(ca, AACC_NORMAL);
+			ca->should_resume = 0;
+			tcp_aacc_reset(ca);
 			break;
 		default:
 			pr_debug("Trace event: Unknown %u\n", new_state);
