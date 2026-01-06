@@ -199,6 +199,9 @@ struct vrenotcp {
 	u32 pre_jump_window;
 	u32 target_window;
 	u32 pipe_ack;
+	u32 sr_exit_bytes;
+	u32 loss_monitoring_acked_packets;
+	// u8 loss_monitoring_loss_experienced;
 	// There already is a variable prior_cwnd in struct tcp_sock (tp->prior_cwnd), we may use that instead?	
 	u32 cwnd_red; // cwnd that is set after a loss is discovered (in tcp_reno_ssthresh)
 	u8 should_resume;
@@ -226,6 +229,9 @@ static inline void tcp_aacc_reset(struct vrenotcp *ca)
 		ca->cwnd_restart_flight_mark = TCP_INFINITE_SSTHRESH;
 		ca->cwnd_restart_flight_mark_bytes = TCP_INFINITE_SSTHRESH;
 		ca->pipe_ack = 0;
+		ca->sr_exit_bytes = TCP_INFINITE_SSTHRESH;
+		ca->loss_monitoring_acked_packets = 0;
+		// ca->loss_monitoring_loss_experienced = 0;
 }
 
 
@@ -289,7 +295,7 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 					(ca->cwnd_restart_flight_mark_bytes - tp->snd_una), (ca->cwnd_restart_flight_mark_bytes - tp->snd_una) / MTU);
 				pr_debug("Restart mark bytes: %u snd una: %u prr_out: %u", ca->cwnd_restart_flight_mark_bytes, tp->snd_una, tp->prr_out);
 
-				if(tp->snd_una >= ca->cwnd_restart_flight_mark_bytes)
+				if(tp->snd_una >= ca->sr_exit_bytes)
 				{
 					// We have acknowledged the full jump.
 					if(ca->aacc_state == AACC_SAFE_RETREAT)
@@ -305,6 +311,7 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 					} else {
 						// THE ONLY OTHER STATE CAN BE JUMP CONFIRMATION SEE OUTER IF
 						ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH; 
+						pr_debug("CWND Jump FULLY ACKED by SR Exit bytes");
 						enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);	
 					}
 					
@@ -724,10 +731,11 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 		}
 	}
 
-	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION || ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
+	if (ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 	{
 		pr_debug("Loss during CWND jump confirmation. Entering SR");
 		// ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
+		ca->sr_exit_bytes = ca->cwnd_restart_flight_mark_bytes;
 		enter_aacc_state(ca, AACC_SAFE_RETREAT);
 		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
 		u32 cubic_ssthresh = ca->pipe_ack * 717 / 1024;
