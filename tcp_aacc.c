@@ -358,8 +358,8 @@ void tcp_aacc_in_ack_event(struct sock *sk, u32 flags)
 	uint16_t dport = ntohs(isock->inet_dport);
 
 	if(sport == 80 || sport == 8080) { // HTTP server OR test TCP server doing
-		pr_debug("ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u 
-			should_resume: %u in flight: %u retrans out: %u",
+		pr_debug("ACK Received. sourcep: %u dstp: %u proto%u send window: %u recv window: %u ssthresh: %u slow-start: %u \
+should_resume: %u in flight: %u retrans out: %u",
 				sport, dport, sk->sk_protocol, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh, tp->snd_cwnd < tp->snd_ssthresh, 
 				ca->should_resume, (tp->packets_out - tcp_left_out(tp) + tp->retrans_out), tp->retrans_out);
 		pr_debug("Delivered %u byte to ack %u", tp->delivered, tp->snd_una);
@@ -389,7 +389,6 @@ void tcp_aacc_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 			 ca->saved_reset_cnt, sport, dport, tp->snd_cwnd, tp->rcv_wnd, tp->snd_ssthresh);
 
 		enter_aacc_state(ca, AACC_RESTARTING_AFTER_IDLE);
-		// TODO: Does TCP Input modify ssthresh?
 		
 		// Set the max cwnd observed during this period to prev_max_cwnd
 		ca->prev_max_cwnd = ca->max_cwnd;
@@ -708,7 +707,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 			// we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
 			u8 cwnd_suspension_rounds = desired_cwnd - cwnd_red_reno; 
 			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = cwnd_suspension_rounds;
-			pr_debug("Should be reducing ssthresh to %u", desired_cwnd);
+			pr_debug("Reducing ssthresh to %u and transitioning to Cwng Growth Suspension for %u rounds", desired_cwnd, cwnd_suspension_rounds);
 
 			//TODO: FIXME This should be NON Reno SSTRESH
 			return max(tcp_snd_cwnd(tp) >> 1U, 2U);
@@ -722,7 +721,7 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 
 	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION || ca->aacc_state == AACC_CWND_JUMP_CONFIRMATION)
 	{
-		pr_debug("Loss during Growth Suspension or CWND jump confirmation. Entering SR");
+		pr_debug("Loss during CWND jump confirmation. Entering SR");
 		// ca->cwnd_jump_mark = TCP_INFINITE_SSTHRESH;
 		enter_aacc_state(ca, AACC_SAFE_RETREAT);
 		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
