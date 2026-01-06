@@ -315,7 +315,12 @@ void tcp_aacc_pkts_acked(struct sock *sk, const struct ack_sample *sample)
 						enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);	
 					}
 					
+				} else if (tp->snd_una >= ca->cwnd_restart_flight_mark_bytes) {
+					// CWND Jump fully acknowledged, enter Growth Suspension
+					pr_debug("CWND Jump Fully ACKED");
+					enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
 				}
+			}
 			}
 
 			if (tp->delivered >= ca->cwnd_restart_flight_mark)
