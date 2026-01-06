@@ -675,7 +675,7 @@ void tcp_aacc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	//TODO: Implement CWNG G Suspension using SHADOW CWND
 
 	// Prevent CCA from modifying cwnd if we are in the cwnd growth suspension phase
-	if (ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION && ca->cwnd_suspension_start_time && ca->AACC_CWND_GROWTH_SUSPENSION_rounds)
+	if ((ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION || ca->aacc_state == AACC_LOSS_MONITORING) && ca->cwnd_suspension_start_time && ca->AACC_CWND_GROWTH_SUSPENSION_rounds)
 	{
 		u32 time_now = tcp_jiffies32;
 		u32 smoothed_rtt_us = tp->srtt_us >> 3;
