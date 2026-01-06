@@ -185,6 +185,10 @@ enum AACC_state {
 };
 
 struct vrenotcp {
+	/* Shadow Reno bookeeping */
+	u32 reno_cwnd;
+	u32 reno_credit;
+
 	u32 saved_reset_cnt;
 	u32 max_cwnd;
 	u32 prev_max_cwnd;
@@ -209,6 +213,7 @@ static inline void enter_aacc_state(struct vrenotcp *ca, enum AACC_state state)
 	pr_debug("Entering AACC state %s", AACC_STATE_LOOKUP[state]);
 	ca->aacc_state = state;
 }
+
 
 static inline void tcp_aacc_reset(struct vrenotcp *ca)
 {
