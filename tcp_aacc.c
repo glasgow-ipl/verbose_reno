@@ -729,12 +729,27 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 	// Taken From Trace State
 	// 
 
-	if ((ca->aacc_state == AACC_RESTARTING_AFTER_IDLE || ca->aacc_state == AACC_NORMAL) && ca->saved_reset_cnt)
+	if (ca->aacc_state == AACC_RESTARTING_AFTER_IDLE && ca->saved_reset_cnt)
+	{
+		// Loss occured _before_ we attempted a jump
+		// Reduce as TCP Reno and transition to AACC_NORMAL
+		pr_debug("Loss during Restarting After Idle");
+		enter_aacc_state(ca, AACC_NORMAL);
+		return max(tcp_snd_cwnd(tp) >> 1U, 2U);
+	}
+
+	if (ca->aacc_state == AACC_NORMAL && ca->saved_reset_cnt)
 	{
 		// When we lose a packet due to dup acks, we are sending too fast, scale back the max_cwnd by applying CUBIC BETA 717/1024
-		u32 old_window = ca->max_cwnd;
-		ca->max_cwnd = ca->max_cwnd * 717/1024;
-		pr_debug("Dup ACK loss. Reducing cwnd from %u to %u", old_window, ca->max_cwnd);
+		u32 old_window = tp->snd_cwnd;
+		u32 new_window = old_window * 717/1024;
+		pr_debug("Dup ACK loss. Reducing cwnd from %u to %u", old_window, new_window);
+		
+		if(new_window < ca->max_cwnd)
+		{
+			// Our previous max window is too high now.
+			ca->max_cwnd = new_window;
+		}
 
 		u32 cwnd_red_reno = tcp_snd_cwnd(tp) >> 1U;
 		u32 cwnd_red_cubic = tcp_snd_cwnd(tp) * 717/1024;
@@ -745,17 +760,13 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 
 		if (cwnd_red_reno < desired_cwnd)
 		{
-			//TODO: We need to enter cwnd growth suspension until cwnd converges
-			enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
-			//TODO IMPL
-			//Is it done for NORMAL CC?
 			// we increase by 1 MTU every RTT, so we need to wait desired_cwnd - reno_reduced_cwnd rounds, before we can start increasing again
 			u8 cwnd_suspension_rounds = desired_cwnd - cwnd_red_reno; 
 			ca->AACC_CWND_GROWTH_SUSPENSION_rounds = cwnd_suspension_rounds;
 			pr_debug("Reducing ssthresh to %u and transitioning to Cwng Growth Suspension for %u rounds", desired_cwnd, cwnd_suspension_rounds);
+			enter_aacc_state(ca, AACC_CWND_GROWTH_SUSPENSION);
 
-			//TODO: FIXME This should be NON Reno SSTRESH
-			return max(tcp_snd_cwnd(tp) >> 1U, 2U);
+			return max(desired_cwnd, 2U);
 		}
 		else {
 			// we have accumulated such a large CWND in CA, that we can let TCP Reno reduce it and still manage to deliver the required quality
@@ -771,6 +782,36 @@ u32 tcp_aacc_ssthresh(struct sock *sk)
 		ca->sr_exit_bytes = ca->cwnd_restart_flight_mark_bytes;
 		enter_aacc_state(ca, AACC_SAFE_RETREAT);
 		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
+		u32 cubic_ssthresh = ca->pipe_ack * 717 / 1024;
+		u32 reno_ssthresh = ca->pipe_ack / 2;
+
+		return max(reno_ssthresh, 2U);
+	}
+
+	if(ca->aacc_state == AACC_CWND_GROWTH_SUSPENSION)
+	{
+		pr_debug("First loss during cwnd growth suspension. Ignoring Loss and entering Loss Monitoring...");
+		// If we are in cwnd growth suspension, we can ignore the first loss and enter loss monitoring
+		
+		enter_aacc_state(ca, AACC_LOSS_MONITORING);
+		// Reset the number of ACKED packets anyway
+		ca->loss_monitoring_acked_packets = 0;
+
+		// If we were not to ignore the loss we should reduce our window by snd_cwnd >> 1 packets.
+		// Therefore, we make an instant "jump" of snd_cwnd - (snd_cwnd >> 1) packets.
+		// We should mark the sr_exit_bytes here to reflect this
+		// ca->sr_exit_bytes = tp->snd_nxt + (tcp_snd_cwnd(tp) >> 1) * MTU;
+
+		//TODO: Should we not return the current cwnd here, i.e., not reduce the window?
+		return max(tp->snd_ssthresh, 2U);
+
+		// tcp_set_ca_state(sk, TCP_CA_Open);
+	} else if (ca->aacc_state == AACC_LOSS_MONITORING) {
+		pr_debug("Repeated loss in loss monitoring. Entering SR.");
+		ca->sr_exit_bytes = tp->snd_una;
+		enter_aacc_state(ca, AACC_SAFE_RETREAT);
+		// We could experiment by reducing the cwnd to 0.7 * pipe_ack instead of 0.5 * pipe_ack
+		ca->pipe_ack = ca->loss_monitoring_acked_packets;
 		u32 cubic_ssthresh = ca->pipe_ack * 717 / 1024;
 		u32 reno_ssthresh = ca->pipe_ack / 2;
 
